@@ -17,12 +17,6 @@ DEFINES += \
 	-DMOZ_MACBUNDLE_NAME=$(MOZ_MACBUNDLE_NAME) \
 	$(NULL)
 
-DISABLED_EXTRA_COMPONENTS = \
-  BrowserFeeds.manifest \
-	FeedConverter.js \
-	WebContentConverter.js \
-  $(NULL)
-
 LOCAL_INCLUDES = -I$(srcdir)/../../build
 
 include $(topsrcdir)/config/rules.mk
