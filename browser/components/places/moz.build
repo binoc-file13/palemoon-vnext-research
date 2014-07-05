@@ -6,7 +6,3 @@
 
 DIRS += ['src']
 
-#XPIDL_FLAGS += [
-#    '-I$(topsrcdir)/browser/components/',
-#]
-

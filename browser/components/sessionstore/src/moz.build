@@ -13,10 +13,10 @@ EXTRA_COMPONENTS += [
 JS_MODULES_PATH = 'modules/sessionstore'
 
 EXTRA_JS_MODULES = [
+    '_SessionFile.jsm',
     'DocumentUtils.jsm',
     'SessionStorage.jsm',
     'XPathGenerator.jsm',
-    '_SessionFile.jsm',
 ]
 
 EXTRA_PP_JS_MODULES += [

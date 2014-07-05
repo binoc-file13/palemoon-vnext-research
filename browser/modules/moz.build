@@ -9,11 +9,11 @@ TEST_DIRS += ['test']
 EXTRA_JS_MODULES += [
         'BrowserNewTabPreloader.jsm',
         'NetworkPrioritizer.jsm',
+        'offlineAppCache.jsm',
+        'openLocationLastURL.jsm',
         'SharedFrame.jsm',
         'SignInToWebsite.jsm',
         'Social.jsm',
-        'offlineAppCache.jsm',
-        'openLocationLastURL.jsm',
         'webappsUI.jsm',
         'webrtcUI.jsm'
 ]

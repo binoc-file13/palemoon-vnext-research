@@ -29,3 +29,5 @@ if CONFIG['MOZ_METRO']:
 if CONFIG['MAKENSISU']:
     DIRS += ['installer/windows']
 
+DIST_SUBDIR = 'browser'
+export('DIST_SUBDIR')

@@ -2,8 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#CHROMEDIR = $(call core_abspath,$(FINAL_TARGET))/chrome
-
 ifdef MOZ_METRO
 GENERATED_DIRS = $(DIST)/bin/metro/chrome
 endif
@@ -26,8 +24,7 @@ libs:: $(FINAL_TARGET)/chrome/pdfjs.manifest
 	  $(srcdir)/pdfjs \
           $(foreach exclude,$(exclude_files), -X $(srcdir)/pdfjs/$(exclude)) \
           $(FINAL_TARGET)/chrome
-	$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py \
-	  $(FINAL_TARGET)/chrome.manifest "manifest chrome/pdfjs.manifest"
+	$(call py_action,buildlist,$(FINAL_TARGET)/chrome.manifest "manifest chrome/pdfjs.manifest")
 
 ifdef MOZ_METRO
 $(DIST)/bin/metro/chrome/pdfjs.manifest: $(GLOBAL_DEPS)
