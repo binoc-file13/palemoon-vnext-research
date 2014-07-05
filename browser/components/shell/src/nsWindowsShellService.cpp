@@ -414,7 +414,7 @@ nsWindowsShellService::IsDefaultBrowser(bool aStartupCheck,
   // otherwise.
   *aIsDefaultBrowser = true;
 
-  PRUnichar exePath[MAX_BUF];
+  wchar_t exePath[MAX_BUF];
   if (!::GetModuleFileNameW(0, exePath, MAX_BUF))
     return NS_ERROR_FAILURE;
 
@@ -428,7 +428,7 @@ nsWindowsShellService::IsDefaultBrowser(bool aStartupCheck,
   HKEY theKey;
   DWORD res;
   nsresult rv;
-  PRUnichar currValue[MAX_BUF];
+  wchar_t currValue[MAX_BUF];
 
   SETTING* settings;
   SETTING* end = gSettings + sizeof(gSettings) / sizeof(SETTING);
@@ -451,13 +451,13 @@ nsWindowsShellService::IsDefaultBrowser(bool aStartupCheck,
     // Close the key that was opened.
     ::RegCloseKey(theKey);
     if (REG_FAILED(res) ||
-        !valueData.Equals(currValue, CaseInsensitiveCompare)) {
+        _wcsicmp(valueData.get(), currValue)) {
       // Key wasn't set or was set to something other than our registry entry.
       NS_ConvertUTF8toUTF16 oldValueData(settings->oldValueData);
       offset = oldValueData.Find("%APPPATH%");
       oldValueData.Replace(offset, 9, appLongPath);
       // The current registry value doesn't match the current or the old format.
-      if (!oldValueData.Equals(currValue, CaseInsensitiveCompare)) {
+      if (_wcsicmp(oldValueData.get(), currValue)) {
         *aIsDefaultBrowser = false;
         return NS_OK;
       }
@@ -570,7 +570,7 @@ nsWindowsShellService::IsDefaultBrowser(bool aStartupCheck,
     // Don't update the FTP protocol handler's shell open command when the
     // current registry value doesn't exist or matches the old format.
     if (REG_FAILED(res) ||
-        !oldValueOpen.Equals(currValue, CaseInsensitiveCompare)) {
+        _wcsicmp(oldValueOpen.get(), currValue)) {
       ::RegCloseKey(theKey);
       return NS_OK;
     }
@@ -965,7 +965,7 @@ nsWindowsShellService::OpenApplication(int32_t aApplication)
   if (NS_FAILED(rv))
     return rv;
 
-  PRUnichar buf[MAX_BUF];
+  wchar_t buf[MAX_BUF];
   DWORD type, len = sizeof buf;
   DWORD res = ::RegQueryValueExW(theKey, EmptyString().get(), 0,
                                  &type, (LPBYTE)&buf, &len);
@@ -1066,7 +1066,7 @@ nsWindowsShellService::SetDesktopBackgroundColor(uint32_t aColor)
                       nsIWindowsRegKey::ACCESS_SET_VALUE);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  PRUnichar rgb[12];
+  wchar_t rgb[12];
   _snwprintf(rgb, 12, L"%u %u %u", r, g, b);
 
   rv = regKey->WriteStringValue(NS_LITERAL_STRING("Background"),
