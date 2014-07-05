@@ -25,13 +25,8 @@ DEFINES += \
   -DPBMODE_ICO=\"$(DIST)/branding/pbmode.ico\" \
   $(NULL)
 
-ifdef MOZILLA_OFFICIAL
-DEFINES += -DMOZILLA_OFFICIAL
-endif
-
 ifdef LIBXUL_SDK #{
 PREF_JS_EXPORTS += $(srcdir)/profile/channel-prefs.js
-DEFINES += -DLIBXUL_SDK
 endif #} LIBXUL_SDK
 
 # Build a binary bootstrapping with XRE_main
@@ -43,7 +38,6 @@ LOCAL_INCLUDES += \
   -I$(DEPTH)/build \
   $(NULL)
 
-DEFINES += -DXPCOM_GLUE
 STL_FLAGS=
 
 LIBS += \
@@ -140,7 +134,7 @@ ifndef LIBXUL_SDK
 # channel-prefs.js is handled separate from other prefs due to bug 756325
 libs:: $(srcdir)/profile/channel-prefs.js
 	$(NSINSTALL) -D $(DIST)/bin/defaults/pref
-	$(PYTHON) $(topsrcdir)/config/Preprocessor.py $(PREF_PPFLAGS) $(ACDEFINES) $^ > $(DIST)/bin/defaults/pref/channel-prefs.js
+	$(call py_action,preprocessor,$(PREF_PPFLAGS) $(ACDEFINES) $^ -o $(DIST)/bin/defaults/pref/channel-prefs.js)
 endif
 
 libs:: $(srcdir)/blocklist.xml
