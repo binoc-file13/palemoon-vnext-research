@@ -21,6 +21,7 @@ extern PRLogModuleInfo* GetDataChannelLog();
 
 
 #include "nsDOMDataChannelDeclarations.h"
+#include "nsDOMDataChannel.h"
 #include "nsIDOMFile.h"
 #include "nsIDOMDataChannel.h"
 #include "nsIDOMMessageEvent.h"
@@ -36,6 +37,12 @@ extern PRLogModuleInfo* GetDataChannelLog();
 #include "nsDOMFile.h"
 
 #include "DataChannel.h"
+
+// Since we've moved the windows.h include down here, we have to explicitly
+// undef GetBinaryType, otherwise we'll get really odd conflicts
+#ifdef GetBinaryType
+#undef GetBinaryType
+#endif
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -56,6 +63,8 @@ nsDOMDataChannel::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
   return DataChannelBinding::Wrap(aCx, aScope, this);
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsDOMDataChannel)
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsDOMDataChannel,
                                                   nsDOMEventTargetHelper)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -70,6 +79,15 @@ NS_IMPL_RELEASE_INHERITED(nsDOMDataChannel, nsDOMEventTargetHelper)
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMDataChannel)
   NS_INTERFACE_MAP_ENTRY(nsIDOMDataChannel)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
+
+nsDOMDataChannel::nsDOMDataChannel(already_AddRefed<mozilla::DataChannel> aDataChannel,
+                                   nsPIDOMWindow* aWindow)
+  : nsDOMEventTargetHelper(aWindow && aWindow->IsOuterWindow() ?
+                             aWindow->GetCurrentInnerWindow() : aWindow)
+  , mDataChannel(aDataChannel)
+  , mBinaryType(DC_BINARY_TYPE_BLOB)
+{
+}
 
 nsresult
 nsDOMDataChannel::Init(nsPIDOMWindow* aDOMWindow)
@@ -90,13 +108,6 @@ nsDOMDataChannel::Init(nsPIDOMWindow* aDOMWindow)
   NS_ENSURE_STATE(scriptPrincipal);
   nsCOMPtr<nsIPrincipal> principal = scriptPrincipal->GetPrincipal();
   NS_ENSURE_STATE(principal);
-
-  if (aDOMWindow) {
-    BindToOwner(aDOMWindow->IsOuterWindow() ?
-                aDOMWindow->GetCurrentInnerWindow() : aDOMWindow);
-  } else {
-    BindToOwner(aDOMWindow);
-  }
 
   // Attempt to kill "ghost" DataChannel (if one can happen): but usually too early for check to fail
   rv = CheckInnerWindowCorrectness();
@@ -288,14 +299,11 @@ nsDOMDataChannel::Send(nsIDOMBlob* aData, ErrorResult& aRv)
 }
 
 void
-nsDOMDataChannel::Send(ArrayBuffer& aData, ErrorResult& aRv)
+nsDOMDataChannel::Send(const ArrayBuffer& aData, ErrorResult& aRv)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
 
-  aData.ComputeLengthAndData();
-
-  MOZ_STATIC_ASSERT(sizeof(*aData.Data()) == 1, "byte-sized data required");
-
+  MOZ_ASSERT(sizeof(*aData.Data()) == 1);
   uint32_t len = aData.Length();
   char* data = reinterpret_cast<char*>(aData.Data());
 
@@ -304,14 +312,11 @@ nsDOMDataChannel::Send(ArrayBuffer& aData, ErrorResult& aRv)
 }
 
 void
-nsDOMDataChannel::Send(ArrayBufferView& aData, ErrorResult& aRv)
+nsDOMDataChannel::Send(const ArrayBufferView& aData, ErrorResult& aRv)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
 
-  aData.ComputeLengthAndData();
-
-  MOZ_STATIC_ASSERT(sizeof(*aData.Data()) == 1, "byte-sized data required");
-
+  MOZ_ASSERT(sizeof(*aData.Data()) == 1);
   uint32_t len = aData.Length();
   char* data = reinterpret_cast<char*>(aData.Data());
 
@@ -489,7 +494,8 @@ NS_NewDOMDataChannel(already_AddRefed<mozilla::DataChannel> aDataChannel,
                      nsPIDOMWindow* aWindow,
                      nsIDOMDataChannel** aDomDataChannel)
 {
-  nsRefPtr<nsDOMDataChannel> domdc = new nsDOMDataChannel(aDataChannel);
+  nsRefPtr<nsDOMDataChannel> domdc =
+    new nsDOMDataChannel(aDataChannel, aWindow);
 
   nsresult rv = domdc->Init(aWindow);
   NS_ENSURE_SUCCESS(rv,rv);

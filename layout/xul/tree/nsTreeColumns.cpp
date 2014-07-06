@@ -40,6 +40,8 @@ nsTreeColumn::~nsTreeColumn()
   }
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsTreeColumn)
+
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsTreeColumn)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mContent)
   if (tmp->mNext) {
@@ -192,7 +194,7 @@ nsTreeColumn::GetId(nsAString& aId)
 }
 
 NS_IMETHODIMP
-nsTreeColumn::GetIdConst(const PRUnichar** aIdConst)
+nsTreeColumn::GetIdConst(const char16_t** aIdConst)
 {
   *aIdConst = mId.get();
   return NS_OK;

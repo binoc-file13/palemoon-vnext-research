@@ -7,9 +7,8 @@
 #define downloadmanager___h___
 
 #if defined(XP_WIN)
-/* #define DOWNLOAD_SCANNER */
+#define DOWNLOAD_SCANNER
 #endif
-#undef DOWNLOAD_SCANNER
 
 #include "nsIDownload.h"
 #include "nsIDownloadManager.h"
@@ -189,10 +188,10 @@ protected:
 
   void ConfirmCancelDownloads(int32_t aCount,
                               nsISupportsPRBool *aCancelDownloads,
-                              const PRUnichar *aTitle,
-                              const PRUnichar *aCancelMessageMultiple,
-                              const PRUnichar *aCancelMessageSingle,
-                              const PRUnichar *aDontCancelButton);
+                              const char16_t *aTitle,
+                              const char16_t *aCancelMessageMultiple,
+                              const char16_t *aCancelMessageSingle,
+                              const char16_t *aDontCancelButton);
 
   int32_t GetRetentionBehavior();
 
@@ -243,6 +242,7 @@ private:
   nsresult ResumeAllDownloads(nsCOMArray<nsDownload>& aDownloads, bool aResumeAll);
   nsresult RemoveDownloadsForURI(mozIStorageStatement* aStatement, nsIURI *aURI);
 
+  bool mUseJSTransfer;
   nsCOMArray<nsIDownloadProgressListener> mListeners;
   nsCOMArray<nsIDownloadProgressListener> mPrivacyAwareListeners;
   nsCOMPtr<nsIStringBundle> mBundle;
@@ -362,7 +362,7 @@ protected:
    * Fail a download because of a failure status and prompt the provided
    * message or use a generic download failure message if nullptr.
    */
-  nsresult FailDownload(nsresult aStatus, const PRUnichar *aMessage);
+  nsresult FailDownload(nsresult aStatus, const char16_t *aMessage);
 
   /**
    * Opens the downloaded file with the appropriate application, which is
@@ -421,6 +421,11 @@ private:
    */
   enum AutoResume { DONT_RESUME, AUTO_RESUME };
   AutoResume mAutoResume;
+
+  /**
+   * Stores the SHA-256 hash associated with the downloaded file.
+   */
+  nsAutoCString mHash;
 
   friend class nsDownloadManager;
 };

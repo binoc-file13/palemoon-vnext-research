@@ -3,6 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 /* $Id: nsPKCS12Blob.cpp,v 1.49 2007/09/05 07:13:46 jwalden%mit.edu Exp $ */
 
+#include "nsPKCS12Blob.h"
+
+#include "insanity/pkixtypes.h"
+
 #include "prmem.h"
 #include "prprf.h"
 
@@ -13,7 +17,6 @@
 
 #include "nsNSSComponent.h"
 #include "nsNSSHelper.h"
-#include "nsPKCS12Blob.h"
 #include "nsString.h"
 #include "nsReadableUtils.h"
 #include "nsXPIDLString.h"
@@ -25,7 +28,6 @@
 #include "nsICertificateDialogs.h"
 #include "nsNSSShutDown.h"
 #include "nsCRT.h"
-#include "ScopedNSSTypes.h"
 
 #include "secerr.h"
 
@@ -34,8 +36,6 @@ extern PRLogModuleInfo* gPIPNSSLog;
 #endif
 
 using namespace mozilla;
-
-static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
 
 #define PIP_PKCS12_TMPFILENAME   NS_LITERAL_CSTRING(".pip_p12tmp")
 #define PIP_PKCS12_BUFFER_SIZE   2048
@@ -138,7 +138,7 @@ nsPKCS12Blob::ImportFromFileHelper(nsIFile *file,
                                    nsPKCS12Blob::RetryReason &aWantRetry)
 {
   nsNSSShutDownPreventionLock locker;
-  nsresult rv;
+  nsresult rv = NS_OK;
   SECStatus srv = SECSuccess;
   SEC_PKCS12DecoderContext *dcx = nullptr;
   SECItem unicodePw;
@@ -209,7 +209,7 @@ finish:
   // for every error possible.
   if (srv != SECSuccess) {
     if (SEC_ERROR_BAD_PASSWORD == PORT_GetError()) {
-      if (unicodePw.len == sizeof(PRUnichar))
+      if (unicodePw.len == sizeof(char16_t))
       {
         // no password chars available, 
         // unicodeToItem allocated space for the trailing zero character only.
@@ -243,7 +243,7 @@ finish:
 // Given an array of certificate nicknames, load the corresponding
 // certificates into a local array.
 nsresult
-nsPKCS12Blob::LoadCerts(const PRUnichar **certNames, int numCerts)
+nsPKCS12Blob::LoadCerts(const char16_t **certNames, int numCerts)
 {
   nsresult rv;
   char namecpy[256];
@@ -358,7 +358,7 @@ nsPKCS12Blob::ExportToFile(nsIFile *file,
 //    nsNSSCertificate *cert = reinterpret_cast<nsNSSCertificate *>(certs[i]);
     nsNSSCertificate *cert = (nsNSSCertificate *)certs[i];
     // get it as a CERTCertificate XXX
-    ScopedCERTCertificate nssCert(cert->GetCert());
+    insanity::pkix::ScopedCERTCertificate nssCert(cert->GetCert());
     if (!nssCert) {
       rv = NS_ERROR_FAILURE;
       goto finish;
@@ -371,7 +371,7 @@ nsPKCS12Blob::ExportToFile(nsIFile *file,
     if (nssCert->slot && !PK11_IsInternal(nssCert->slot)) {
       // we aren't the internal token, see if the key is extractable.
       SECKEYPrivateKey *privKey=PK11_FindKeyByDERCert(nssCert->slot,
-                                                      nssCert, this);
+                                                      nssCert.get(), this);
 
       if (privKey) {
         bool privKeyIsExtractable = isExtractable(privKey);
@@ -403,7 +403,7 @@ nsPKCS12Blob::ExportToFile(nsIFile *file,
       goto finish;
     }
     // add the cert and key to the blob
-    srv = SEC_PKCS12AddCertAndKey(ecx, certSafe, nullptr, nssCert,
+    srv = SEC_PKCS12AddCertAndKey(ecx, certSafe, nullptr, nssCert.get(),
                                   CERT_GetDefaultCertDB(), // XXX
                                   keySafe, nullptr, true, &unicodePw,
                       SEC_OID_PKCS12_V2_PBE_WITH_SHA1_AND_3KEY_TRIPLE_DES_CBC);
@@ -463,11 +463,11 @@ finish:
 // a buffer of octets.  Must handle byte order correctly.
 // TODO: Is there a mozilla way to do this?  In the string lib?
 void
-nsPKCS12Blob::unicodeToItem(const PRUnichar *uni, SECItem *item)
+nsPKCS12Blob::unicodeToItem(const char16_t *uni, SECItem *item)
 {
   int len = 0;
   while (uni[len++] != 0);
-  SECITEM_AllocItem(nullptr, item, sizeof(PRUnichar) * len);
+  SECITEM_AllocItem(nullptr, item, sizeof(char16_t) * len);
 #ifdef IS_LITTLE_ENDIAN
   int i = 0;
   for (i=0; i<len; i++) {
@@ -682,6 +682,8 @@ nsPKCS12Blob::digest_write(void *arg, unsigned char *buf, unsigned long len)
 SECItem *
 nsPKCS12Blob::nickname_collision(SECItem *oldNick, PRBool *cancel, void *wincx)
 {
+  static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
+
   nsNSSShutDownPreventionLock locker;
   *cancel = false;
   nsresult rv;
@@ -734,7 +736,7 @@ nsPKCS12Blob::nickname_collision(SECItem *oldNick, PRBool *cancel, void *wincx)
     return nullptr;
 
   newNick->type = siAsciiString;
-  newNick->data = (unsigned char*) nsCRT::strdup(nickname.get());
+  newNick->data = (unsigned char*) strdup(nickname.get());
   newNick->len  = strlen((char*)newNick->data);
   return newNick;
 }
@@ -769,6 +771,8 @@ pip_ucs2_ascii_conversion_fn(PRBool toUnicode,
 void
 nsPKCS12Blob::handleError(int myerr)
 {
+  static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
+
   if (!NS_IsMainThread()) {
     NS_ERROR("nsPKCS12Blob::handleError called off the mai nthread.");
     return;

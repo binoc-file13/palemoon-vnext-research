@@ -3,11 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsCOMPtr.h"
-#include "nsFrame.h"
-#include "nsPresContext.h"
-#include "nsStyleContext.h"
-#include "nsStyleConsts.h"
 #include "nsMathMLSelectedFrame.h"
 #include "nsDisplayList.h"
 
@@ -112,8 +107,8 @@ nsMathMLSelectedFrame::Reflow(nsPresContext*          aPresContext,
 {
   nsresult rv = NS_OK;
   aStatus = NS_FRAME_COMPLETE;
-  aDesiredSize.width = aDesiredSize.height = 0;
-  aDesiredSize.ascent = 0;
+  aDesiredSize.Width() = aDesiredSize.Height() = 0;
+  aDesiredSize.SetTopAscent(0);
   mBoundingMetrics = nsBoundingMetrics();
   nsIFrame* childFrame = GetSelectedFrame();
   if (childFrame) {
@@ -143,16 +138,16 @@ nsMathMLSelectedFrame::Place(nsRenderingContext& aRenderingContext,
     return ReflowError(aRenderingContext, aDesiredSize);
   }
 
-  aDesiredSize.width = aDesiredSize.height = 0;
-  aDesiredSize.ascent = 0;
+  aDesiredSize.Width() = aDesiredSize.Height() = 0;
+  aDesiredSize.SetTopAscent(0);
   mBoundingMetrics = nsBoundingMetrics();
   if (childFrame) {
     GetReflowAndBoundingMetricsFor(childFrame, aDesiredSize, mBoundingMetrics);
     if (aPlaceOrigin) {
-      FinishReflowChild(childFrame, PresContext(), nullptr, aDesiredSize, 0, 0, 0);
+      FinishReflowChild(childFrame, PresContext(), aDesiredSize, nullptr, 0, 0, 0);
     }
     mReference.x = 0;
-    mReference.y = aDesiredSize.ascent;
+    mReference.y = aDesiredSize.TopAscent();
   }
   aDesiredSize.mBoundingMetrics = mBoundingMetrics;
   return NS_OK;

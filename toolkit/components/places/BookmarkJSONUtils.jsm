@@ -7,13 +7,26 @@ this.EXPORTED_SYMBOLS = [ "BookmarkJSONUtils" ];
 const Ci = Components.interfaces;
 const Cc = Components.classes;
 const Cu = Components.utils;
+const Cr = Components.results;
 
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/NetUtil.jsm");
-Cu.import("resource://gre/modules/FileUtils.jsm");
+Cu.import("resource://gre/modules/osfile.jsm");
 Cu.import("resource://gre/modules/PlacesUtils.jsm");
+Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
-Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
+
+XPCOMUtils.defineLazyModuleGetter(this, "PlacesBackups",
+  "resource://gre/modules/PlacesBackups.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "Deprecated",
+  "resource://gre/modules/Deprecated.jsm");
+
+XPCOMUtils.defineLazyGetter(this, "gTextDecoder", () => new TextDecoder());
+XPCOMUtils.defineLazyGetter(this, "gTextEncoder", () => new TextEncoder());
+XPCOMUtils.defineLazyGetter(this, "localFileCtor",
+  () => Components.Constructor("@mozilla.org/file/local;1",
+                               "nsILocalFile", "initWithPath"));
 
 this.BookmarkJSONUtils = Object.freeze({
   /**
@@ -38,8 +51,8 @@ this.BookmarkJSONUtils = Object.freeze({
    * @note any item annotated with "places/excludeFromBackup" won't be removed
    *       before executing the restore.
    *
-   * @param aFile
-   *        nsIFile of bookmarks in JSON format to be restored.
+   * @param aFilePath
+   *        OS.File path or nsIFile of bookmarks in JSON format to be restored.
    * @param aReplace
    *        Boolean if true, replace existing bookmarks, else merge.
    *
@@ -47,24 +60,52 @@ this.BookmarkJSONUtils = Object.freeze({
    * @resolves When the new bookmarks have been created.
    * @rejects JavaScript exception.
    */
-  importFromFile: function BJU_importFromFile(aFile, aReplace) {
+  importFromFile: function BJU_importFromFile(aFilePath, aReplace) {
     let importer = new BookmarkImporter();
-    return importer.importFromFile(aFile, aReplace);
+    // TODO (bug 967192): convert to pure OS.File
+    let file = aFilePath instanceof Ci.nsIFile ? aFilePath
+                                               : new localFileCtor(aFilePath);
+    return importer.importFromFile(file, aReplace);
   },
 
   /**
-   * Serializes bookmarks using JSON, and writes to the supplied file.
+   * Serializes bookmarks using JSON, and writes to the supplied file path.
    *
-   * @param aLocalFile
-   *        nsIFile for the "bookmarks.json" file to be created.
+   * @param aFilePath
+   *        OS.File path for the "bookmarks.json" file to be created.
    *
    * @return {Promise}
-   * @resolves When the file has been created.
+   * @resolves To the exported bookmarks count when the file has been created.
    * @rejects JavaScript exception.
+   * @deprecated passing an nsIFile is deprecated
    */
-  exportToFile: function BJU_exportToFile(aLocalFile) {
-    let exporter = new BookmarkExporter();
-    return exporter.exportToFile(aLocalFile);
+  exportToFile: function BJU_exportToFile(aFilePath) {
+    if (aFilePath instanceof Ci.nsIFile) {
+      Deprecated.warning("Passing an nsIFile to BookmarksJSONUtils.exportToFile " +
+                         "is deprecated. Please use an OS.File path instead.",
+                         "https://developer.mozilla.org/docs/JavaScript_OS.File");
+      aFilePath = aFilePath.path;
+    }
+    return Task.spawn(function* () {
+      let [bookmarks, count] = yield PlacesBackups.getBookmarksTree();
+      let startTime = Date.now();
+      let jsonString = JSON.stringify(bookmarks);
+      // Report the time taken to convert the tree to JSON.
+      try {
+        Services.telemetry
+                .getHistogramById("PLACES_BACKUPS_TOJSON_MS")
+                .add(Date.now() - startTime);
+      } catch (ex) {
+        Components.utils.reportError("Unable to report telemetry.");
+      }
+
+      // Do not write to the tmp folder, otherwise if it has a different
+      // filesystem writeAtomic will fail.  Eventual dangling .tmp files should
+      // be cleaned up by the caller.
+      yield OS.File.writeAtomic(aFilePath, jsonString,
+                                { tmpPath: OS.Path.join(aFilePath + ".tmp") });
+      return count;
+    });
   },
 
   /**
@@ -359,7 +400,8 @@ BookmarkImporter.prototype = {
             });
             return [folderIdMap, searchIds];
           }
-        } else if (aData.livemark && aData.annos) {
+        } else if (aData.annos &&
+                   aData.annos.some(anno => anno.name == PlacesUtils.LMANNO_FEEDURI)) {
           // Node is a livemark
           let feedURI = null;
           let siteURI = null;
@@ -419,7 +461,8 @@ BookmarkImporter.prototype = {
         if (aData.keyword)
           PlacesUtils.bookmarks.setKeywordForBookmark(id, aData.keyword);
         if (aData.tags) {
-          let tags = aData.tags.split(", ");
+          // TODO (bug 967196) the tagging service should trim by itself.
+          let tags = aData.tags.split(",").map(tag => tag.trim());
           if (tags.length)
             PlacesUtils.tagging.tagURI(NetUtil.newURI(aData.uri), tags);
         }
@@ -499,70 +542,6 @@ function fixupQuery(aQueryURI, aFolderIdMap) {
   return NetUtil.newURI(stringURI);
 }
 
-function BookmarkExporter() {}
-BookmarkExporter.prototype = {
-  exportToFile: function BE_exportToFile(aLocalFile) {
-    return Task.spawn(this._writeToFile(aLocalFile));
-  },
-
-  _converterOut: null,
-
-  _writeToFile: function BE__writeToFile(aLocalFile) {
-    // Create a file that can be accessed by the current user only.
-    let safeFileOut = Cc["@mozilla.org/network/safe-file-output-stream;1"].
-                      createInstance(Ci.nsIFileOutputStream);
-    safeFileOut.init(aLocalFile, FileUtils.MODE_WRONLY | FileUtils.MODE_CREATE |
-                     FileUtils.MODE_TRUNCATE, parseInt("0600", 8), 0);
-
-    try {
-      // We need a buffered output stream for performance.  See bug 202477.
-      let bufferedOut = Cc["@mozilla.org/network/buffered-output-stream;1"].
-                        createInstance(Ci.nsIBufferedOutputStream);
-      bufferedOut.init(safeFileOut, 4096);
-      try {
-        // Write bookmarks in UTF-8.
-        this._converterOut = Cc["@mozilla.org/intl/converter-output-stream;1"].
-                             createInstance(Ci.nsIConverterOutputStream);
-        this._converterOut.init(bufferedOut, "utf-8", 0, 0);
-        try {
-          yield this._writeContentToFile();
-
-          // Flush the buffer and retain the target file on success only.
-          bufferedOut.QueryInterface(Ci.nsISafeOutputStream).finish();
-        } finally {
-          this._converterOut.close();
-          this._converterOut = null;
-        }
-      } finally {
-        bufferedOut.close();
-      }
-    } finally {
-      safeFileOut.close();
-    }
-  },
-
-  _writeContentToFile: function BE__writeContentToFile() {
-    // Weep over stream interface variance.
-    let streamProxy = {
-      converter: this._converterOut,
-      write: function(aData, aLen) {
-        this.converter.writeString(aData);
-      }
-    };
-
-    // Get list of itemIds that must be excluded from the backup.
-    let excludeItems = PlacesUtils.annotations.getItemsWithAnnotation(
-                         PlacesUtils.EXCLUDE_FROM_BACKUP_ANNO);
-    let root = PlacesUtils.getFolderContents(PlacesUtils.placesRootId, false,
-                                             false).root;
-
-    // Serialize to JSON and write to stream.
-    yield BookmarkNode.serializeAsJSONToOutputStream(root, streamProxy, false, false,
-                                                     excludeItems);
-    root.containerOpen = false;
-  }
-}
-
 let BookmarkNode = {
   /**
    * Serializes the given node (and all its descendents) as JSON
@@ -582,27 +561,33 @@ let BookmarkNode = {
    * @param   aExcludeItems
    *          An array of item ids that should not be written to the backup.
    * @returns Task promise
+   * @resolves the number of serialized uri nodes.
    */
   serializeAsJSONToOutputStream: function BN_serializeAsJSONToOutputStream(
     aNode, aStream, aIsUICommand, aResolveShortcuts, aExcludeItems) {
 
-    return Task.spawn(function() {
+    return Task.spawn(function* () {
       // Serialize to stream
       let array = [];
-      if (yield this._appendConvertedNode(aNode, null, array, aIsUICommand,
-                                          aResolveShortcuts, aExcludeItems)) {
-        let json = JSON.stringify(array[0]);
-        aStream.write(json, json.length);
+      let result = yield this._appendConvertedNode(aNode, null, array,
+                                                   aIsUICommand,
+                                                   aResolveShortcuts,
+                                                   aExcludeItems);
+      if (result.appendedNode) {
+        let jsonString = JSON.stringify(array[0]);
+        aStream.write(jsonString, jsonString.length);
       } else {
         throw Cr.NS_ERROR_UNEXPECTED;
       }
-    }.bind(this));                                  
+      return result.nodeCount;
+    }.bind(this));
   },
 
   _appendConvertedNode: function BN__appendConvertedNode(
     bNode, aIndex, aArray, aIsUICommand, aResolveShortcuts, aExcludeItems) {
-    return Task.spawn(function() {
+    return Task.spawn(function* () {
       let node = {};
+      let nodeCount = 0;
 
       // Set index in order received
       // XXX handy shortcut, but are there cases where we don't want
@@ -618,7 +603,7 @@ let BookmarkNode = {
       if (PlacesUtils.nodeIsURI(bNode)) {
         // Tag root accept only folder nodes
         if (parent && parent.itemId == PlacesUtils.tagsFolderId)
-          throw new Task.Result(false);
+          return { appendedNode: false, nodeCount: nodeCount };
 
         // Check for url validity, since we can't halt while writing a backup.
         // This will throw if we try to serialize an invalid url and it does
@@ -626,14 +611,15 @@ let BookmarkNode = {
         try {
           NetUtil.newURI(bNode.uri);
         } catch (ex) {
-          throw new Task.Result(false);
+          return { appendedNode: false, nodeCount: nodeCount };
         }
 
         yield this._addURIProperties(bNode, node, aIsUICommand);
+        nodeCount++;
       } else if (PlacesUtils.nodeIsContainer(bNode)) {
         // Tag containers accept only uri nodes
         if (grandParent && grandParent.itemId == PlacesUtils.tagsFolderId)
-          throw new Task.Result(false);
+          return { appendedNode: false, nodeCount: nodeCount };
 
         this._addContainerProperties(bNode, node, aIsUICommand,
                                      aResolveShortcuts);
@@ -642,19 +628,24 @@ let BookmarkNode = {
         // Tag containers accept only uri nodes
         if ((parent && parent.itemId == PlacesUtils.tagsFolderId) ||
             (grandParent && grandParent.itemId == PlacesUtils.tagsFolderId))
-          throw new Task.Result(false);
+          return { appendedNode: false, nodeCount: nodeCount };
 
         this._addSeparatorProperties(bNode, node);
       }
 
       if (!node.feedURI && node.type == PlacesUtils.TYPE_X_MOZ_PLACE_CONTAINER) {
-        throw new Task.Result(yield this._appendConvertedComplexNode(node, bNode, aArray, aIsUICommand,
-                                                                     aResolveShortcuts, aExcludeItems));
+        nodeCount += yield this._appendConvertedComplexNode(node,
+                                                           bNode,
+                                                           aArray,
+                                                           aIsUICommand,
+                                                           aResolveShortcuts,
+                                                           aExcludeItems)
+        return { appendedNode: true, nodeCount: nodeCount };
       }
 
       aArray.push(node);
-      throw new Task.Result(true);
-    }.bind(this));                                   
+      return { appendedNode: true, nodeCount: nodeCount };
+    }.bind(this));
   },
 
   _addGenericProperties: function BN__addGenericProperties(
@@ -681,8 +672,6 @@ let BookmarkNode = {
           // backup/restore of non-whitelisted annos
           // XXX causes JSON encoding errors, so utf-8 encode
           // anno.value = unescape(encodeURIComponent(anno.value));
-          if (anno.name == PlacesUtils.LMANNO_FEEDURI)
-            aJSNode.livemark = 1;
           if (anno.name == PlacesUtils.READ_ONLY_ANNO && aResolveShortcuts) {
             // When copying a read-only node, remove the read-only annotation.
             return false;
@@ -763,15 +752,17 @@ let BookmarkNode = {
   _appendConvertedComplexNode: function BN__appendConvertedComplexNode(
     aNode, aSourceNode, aArray, aIsUICommand, aResolveShortcuts,
     aExcludeItems) {
-    return Task.spawn(function() {
+    return Task.spawn(function* () {
       let repr = {};
+      let nodeCount = 0;
 
       for (let [name, value] in Iterator(aNode))
         repr[name] = value;
 
       // Write child nodes
       let children = repr.children = [];
-      if (!aNode.livemark) {
+      if (!aNode.annos ||
+          !aNode.annos.some(anno => anno.name == PlacesUtils.LMANNO_FEEDURI)) {
         PlacesUtils.asContainer(aSourceNode);
         let wasOpen = aSourceNode.containerOpen;
         if (!wasOpen)
@@ -781,16 +772,17 @@ let BookmarkNode = {
           let childNode = aSourceNode.getChild(i);
           if (aExcludeItems && aExcludeItems.indexOf(childNode.itemId) != -1)
             continue;
-          yield this._appendConvertedNode(aSourceNode.getChild(i), i, children,
-                                          aIsUICommand, aResolveShortcuts,
-                                          aExcludeItems);
+          let result = yield this._appendConvertedNode(aSourceNode.getChild(i), i, children,
+                                                       aIsUICommand, aResolveShortcuts,
+                                                       aExcludeItems);
+          nodeCount += result.nodeCount;
         }
         if (!wasOpen)
           aSourceNode.containerOpen = false;
       }
 
       aArray.push(repr);
-      throw new Task.Result(true);
+      return nodeCount;
     }.bind(this));
   }
 }

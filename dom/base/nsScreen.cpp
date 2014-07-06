@@ -5,35 +5,20 @@
 
 #include "mozilla/Hal.h"
 #include "nsScreen.h"
+#include "nsIDocument.h"
 #include "nsIDocShell.h"
+#include "nsIDocument.h"
 #include "nsPresContext.h"
 #include "nsCOMPtr.h"
-#include "nsDOMClassInfoID.h"
 #include "nsIDocShellTreeItem.h"
 #include "nsLayoutUtils.h"
 #include "nsDOMEvent.h"
-#include "nsGlobalWindow.h"
 #include "nsJSUtils.h"
 #include "mozilla/dom/ScreenBinding.h"
+#include "nsDeviceContext.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
-
-namespace {
-
-bool
-IsChromeType(nsIDocShell *aDocShell)
-{
-  if (!aDocShell) {
-    return false;
-  }
-
-  int32_t itemType;
-  aDocShell->GetItemType(&itemType);
-  return itemType == nsIDocShellTreeItem::typeChrome;
-}
-
-} // anonymous namespace
 
 /* static */ already_AddRefed<nsScreen>
 nsScreen::Create(nsPIDOMWindow* aWindow)
@@ -48,8 +33,7 @@ nsScreen::Create(nsPIDOMWindow* aWindow)
     do_QueryInterface(static_cast<nsPIDOMWindow*>(aWindow));
   NS_ENSURE_TRUE(sgo, nullptr);
 
-  nsRefPtr<nsScreen> screen = new nsScreen();
-  screen->BindToOwner(aWindow);
+  nsRefPtr<nsScreen> screen = new nsScreen(aWindow);
 
   hal::RegisterScreenConfigurationObserver(screen);
   hal::ScreenConfiguration config;
@@ -59,10 +43,10 @@ nsScreen::Create(nsPIDOMWindow* aWindow)
   return screen.forget();
 }
 
-nsScreen::nsScreen()
-  : mEventListener(nullptr)
+nsScreen::nsScreen(nsPIDOMWindow* aWindow)
+  : nsDOMEventTargetHelper(aWindow)
+  , mEventListener(nullptr)
 {
-  SetIsDOMBinding();
 }
 
 nsScreen::~nsScreen()
@@ -79,8 +63,6 @@ NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
 
 NS_IMPL_ADDREF_INHERITED(nsScreen, nsDOMEventTargetHelper)
 NS_IMPL_RELEASE_INHERITED(nsScreen, nsDOMEventTargetHelper)
-
-NS_IMPL_EVENT_HANDLER(nsScreen, mozorientationchange)
 
 int32_t
 nsScreen::GetPixelDepth(ErrorResult& aRv)
@@ -198,7 +180,7 @@ nsScreen::GetMozOrientation(nsString& aOrientation)
     break;
   case eScreenOrientation_None:
   default:
-    MOZ_NOT_REACHED("Unacceptable mOrientation value");
+    MOZ_CRASH("Unacceptable mOrientation value");
   }
 }
 
@@ -220,7 +202,8 @@ nsScreen::GetLockOrientationPermission() const
   }
 
   // Chrome can always lock the screen orientation.
-  if (IsChromeType(owner->GetDocShell())) {
+  nsIDocShell* docShell = owner->GetDocShell();
+  if (docShell && docShell->ItemType() == nsIDocShellTreeItem::typeChrome) {
     return LOCK_ALLOWED;
   }
 
@@ -240,7 +223,7 @@ nsScreen::GetLockOrientationPermission() const
 }
 
 NS_IMETHODIMP
-nsScreen::MozLockOrientation(const JS::Value& aOrientation, JSContext* aCx,
+nsScreen::MozLockOrientation(JS::Handle<JS::Value> aOrientation, JSContext* aCx,
                              bool* aReturn)
 {
   if (aOrientation.isObject()) {
@@ -259,11 +242,11 @@ nsScreen::MozLockOrientation(const JS::Value& aOrientation, JSContext* aCx,
 
       for (uint32_t i = 0; i < length; ++i) {
         JS::Rooted<JS::Value> temp(aCx);
-        if (!JS_GetElement(aCx, seq, i, temp.address())) {
+        if (!JS_GetElement(aCx, seq, i, &temp)) {
           return NS_ERROR_FAILURE;
         }
 
-        JS::RootedString jsString(aCx, JS_ValueToString(aCx, temp));
+        JS::Rooted<JSString*> jsString(aCx, JS::ToString(aCx, temp));
         if (!jsString) {
           return NS_ERROR_FAILURE;
         }
@@ -282,7 +265,7 @@ nsScreen::MozLockOrientation(const JS::Value& aOrientation, JSContext* aCx,
     }
   }
 
-  JS::RootedString jsString(aCx, JS_ValueToString(aCx, aOrientation));
+  JS::Rooted<JSString*> jsString(aCx, JS::ToString(aCx, aOrientation));
   if (!jsString) {
     return NS_ERROR_FAILURE;
   }
@@ -332,6 +315,8 @@ nsScreen::MozLockOrientation(const Sequence<nsString>& aOrientations,
       orientation |= eScreenOrientation_LandscapePrimary;
     } else if (item.EqualsLiteral("landscape-secondary")) {
       orientation |= eScreenOrientation_LandscapeSecondary;
+    } else if (item.EqualsLiteral("default")) {
+      orientation |= eScreenOrientation_Default;
     } else {
       // If we don't recognize the token, we should just return 'false'
       // without throwing.
@@ -371,8 +356,7 @@ nsScreen::MozLockOrientation(const Sequence<nsString>& aOrientations,
 
   // This is only for compilers that don't understand that the previous switch
   // will always return.
-  MOZ_NOT_REACHED("unexpected lock orientation permission value");
-  return false;
+  MOZ_CRASH("unexpected lock orientation permission value");
 }
 
 void
@@ -386,6 +370,19 @@ nsScreen::SlowMozUnlockOrientation()
 {
   MozUnlockOrientation();
   return NS_OK;
+}
+
+bool
+nsScreen::IsDeviceSizePageSize()
+{
+  nsPIDOMWindow* owner = GetOwner();
+  if (owner) {
+    nsIDocShell* docShell = owner->GetDocShell();
+    if (docShell) {
+      return docShell->GetDeviceSizeIsPageSize();
+    }
+  }
+  return false;
 }
 
 /* virtual */

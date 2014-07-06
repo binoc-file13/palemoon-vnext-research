@@ -26,8 +26,8 @@ using namespace mozilla::dom;
 /**
  * class used to implement attr() generated content
  */
-class nsAttributeTextNode : public nsTextNode,
-                            public nsStubMutationObserver
+class nsAttributeTextNode MOZ_FINAL : public nsTextNode,
+                                      public nsStubMutationObserver
 {
 public:
   NS_DECL_ISUPPORTS_INHERITED
@@ -122,7 +122,7 @@ nsTextNode::CloneDataNode(nsINodeInfo *aNodeInfo, bool aCloneText) const
 }
 
 nsresult
-nsTextNode::AppendTextForNormalize(const PRUnichar* aBuffer, uint32_t aLength,
+nsTextNode::AppendTextForNormalize(const char16_t* aBuffer, uint32_t aLength,
                                    bool aNotify, nsIContent* aNextSibling)
 {
   CharacterDataChangeInfo::Details details = {

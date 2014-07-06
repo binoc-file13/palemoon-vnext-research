@@ -50,7 +50,7 @@ public:
   bool      PrintersAreAllocated()       { return mGlobalPrinterList != nullptr; }
   uint32_t  GetNumPrinters()             { return mGlobalNumPrinters; }
   nsString* GetStringAt(int32_t aInx)    { return &mGlobalPrinterList->ElementAt(aInx); }
-  void      GetDefaultPrinterName(PRUnichar*& aDefaultPrinterName);
+  void      GetDefaultPrinterName(char16_t*& aDefaultPrinterName);
 
 protected:
   GlobalPrinters() {}
@@ -205,8 +205,8 @@ NS_IMETHODIMP nsDeviceContextSpecOS2::Init(nsIWidget *aWidget,
   if (aPS) {
     bool       tofile         = false;
     int32_t    copies         = 1;
-    PRUnichar *printer        = nullptr;
-    PRUnichar *printfile      = nullptr;
+    char16_t *printer        = nullptr;
+    char16_t *printfile      = nullptr;
 
     mPrintSettings->GetPrinterName(&printer);
     mPrintSettings->GetToFileName(&printfile);
@@ -432,28 +432,35 @@ NS_IMETHODIMP nsDeviceContextSpecOS2::GetSurfaceForPrinter(gfxASurface **surface
 
 // Helper function to convert the string to the native codepage,
 // similar to UnicodeToCodepage() in nsDragService.cpp.
-char *GetACPString(const PRUnichar* aStr)
+char *GetACPString(const nsAString& aStr)
 {
-   nsString str(aStr);
-   if (str.Length() == 0) {
+   if (aStr.Length() == 0) {
       return nullptr;
    }
 
    nsAutoCharBuffer buffer;
    int32_t bufLength;
-   WideCharToMultiByte(0, PromiseFlatString(str).get(), str.Length(),
+   WideCharToMultiByte(0, PromiseFlatString(aStr).get(), aStr.Length(),
                        buffer, bufLength);
    return ToNewCString(nsDependentCString(buffer.Elements()));
 }
 
-NS_IMETHODIMP nsDeviceContextSpecOS2::BeginDocument(PRUnichar* aTitle,
-                                                    PRUnichar* aPrintToFileName,
+// Helper function to convert the string to the native codepage,
+// similar to UnicodeToCodepage() in nsDragService.cpp.
+char *GetACPString(const char16_t* aStr)
+{
+   nsString str(aStr);
+   return GetACPString(str);
+}
+
+NS_IMETHODIMP nsDeviceContextSpecOS2::BeginDocument(const nsAString& aTitle,
+                                                    char16_t* aPrintToFileName,
                                                     int32_t aStartPage,
                                                     int32_t aEndPage)
 {
 #ifdef debug_thebes_print
   printf("nsDeviceContextSpecOS2[%#x]::BeginPrinting(%s, %s)\n", (unsigned)this,
-         NS_LossyConvertUTF16toASCII(nsString(aTitle)).get(),
+         NS_LossyConvertUTF16toASCII(aTitle).get(),
          NS_LossyConvertUTF16toASCII(nsString(aPrintToFileName)).get());
 #endif
   // don't try to send device escapes for non-native output (like PDF)
@@ -468,7 +475,7 @@ NS_IMETHODIMP nsDeviceContextSpecOS2::BeginDocument(PRUnichar* aTitle,
   PCSZ pszDocName = title ? title : pszGenericDocName;
   LONG lResult = DevEscape(mPrintDC, DEVESC_STARTDOC,
                            strlen(pszDocName) + 1, const_cast<BYTE*>(pszDocName),
-                           (PLONG)NULL, (PBYTE)NULL);
+                           (PLONG)nullptr, (PBYTE)nullptr);
   mPrintingStarted = true;
   if (title) {
     nsMemory::Free(title);
@@ -484,7 +491,7 @@ NS_IMETHODIMP nsDeviceContextSpecOS2::EndDocument()
   int16_t outputFormat;
   mPrintSettings->GetOutputFormat(&outputFormat);
   if (outputFormat != nsIPrintSettings::kOutputFormatNative) {
-    mPrintSettings->SetToFileName(NULL);
+    mPrintSettings->SetToFileName(nullptr);
     nsCOMPtr<nsIPrintSettingsService> pss = do_GetService("@mozilla.org/gfx/printsettings-service;1");
     if (pss)
       pss->SavePrintSettingsToPrefs(mPrintSettings, true, nsIPrintSettings::kInitSaveToFileName);
@@ -493,7 +500,7 @@ NS_IMETHODIMP nsDeviceContextSpecOS2::EndDocument()
 
   LONG lOutCount = 2;
   USHORT usJobID = 0;
-  LONG lResult = DevEscape(mPrintDC, DEVESC_ENDDOC, 0L, (PBYTE)NULL,
+  LONG lResult = DevEscape(mPrintDC, DEVESC_ENDDOC, 0L, (PBYTE)nullptr,
                            &lOutCount, (PBYTE)&usJobID);
   return lResult == DEV_OK ? NS_OK : NS_ERROR_GFX_PRINTER_ENDDOC;
 }
@@ -511,8 +518,8 @@ NS_IMETHODIMP nsDeviceContextSpecOS2::BeginPage()
     mPrintingStarted = false;
     return NS_OK;
   }
-  LONG lResult = DevEscape(mPrintDC, DEVESC_NEWFRAME, 0L, (PBYTE)NULL,
-                           (PLONG)NULL, (PBYTE)NULL);
+  LONG lResult = DevEscape(mPrintDC, DEVESC_NEWFRAME, 0L, (PBYTE)nullptr,
+                           (PLONG)nullptr, (PBYTE)nullptr);
   return lResult == DEV_OK ? NS_OK : NS_ERROR_GFX_PRINTER_STARTPAGE;
 }
 
@@ -557,7 +564,7 @@ NS_IMETHODIMP nsPrinterEnumeratorOS2::GetPrinterNameList(nsIStringEnumerator **a
   return NS_NewAdoptingStringEnumerator(aPrinterNameList, printers);
 }
 
-NS_IMETHODIMP nsPrinterEnumeratorOS2::GetDefaultPrinterName(PRUnichar * *aDefaultPrinterName)
+NS_IMETHODIMP nsPrinterEnumeratorOS2::GetDefaultPrinterName(char16_t * *aDefaultPrinterName)
 {
   NS_ENSURE_ARG_POINTER(aDefaultPrinterName);
   GlobalPrinters::GetInstance()->GetDefaultPrinterName(*aDefaultPrinterName);
@@ -565,7 +572,7 @@ NS_IMETHODIMP nsPrinterEnumeratorOS2::GetDefaultPrinterName(PRUnichar * *aDefaul
 }
 
 /* void initPrintSettingsFromPrinter (in wstring aPrinterName, in nsIPrintSettings aPrintSettings); */
-NS_IMETHODIMP nsPrinterEnumeratorOS2::InitPrintSettingsFromPrinter(const PRUnichar *aPrinterName, nsIPrintSettings *aPrintSettings)
+NS_IMETHODIMP nsPrinterEnumeratorOS2::InitPrintSettingsFromPrinter(const char16_t *aPrinterName, nsIPrintSettings *aPrintSettings)
 {
    NS_ENSURE_ARG_POINTER(aPrinterName);
    NS_ENSURE_ARG_POINTER(aPrintSettings);
@@ -588,7 +595,7 @@ NS_IMETHODIMP nsPrinterEnumeratorOS2::InitPrintSettingsFromPrinter(const PRUnich
   return NS_OK;
 }
 
-NS_IMETHODIMP nsPrinterEnumeratorOS2::DisplayPropertiesDlg(const PRUnichar *aPrinter, nsIPrintSettings *aPrintSettings)
+NS_IMETHODIMP nsPrinterEnumeratorOS2::DisplayPropertiesDlg(const char16_t *aPrinter, nsIPrintSettings *aPrintSettings)
 {
   nsresult rv = GlobalPrinters::GetInstance()->InitializeGlobalPrinters();
   if (NS_FAILED(rv)) {
@@ -653,7 +660,7 @@ nsresult GlobalPrinters::InitializeGlobalPrinters ()
   return NS_OK;
 }
 
-void GlobalPrinters::GetDefaultPrinterName(PRUnichar*& aDefaultPrinterName)
+void GlobalPrinters::GetDefaultPrinterName(char16_t*& aDefaultPrinterName)
 {
   aDefaultPrinterName = nullptr;
 

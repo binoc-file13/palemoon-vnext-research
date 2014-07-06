@@ -6,15 +6,19 @@
 #ifndef nsFrameList_h___
 #define nsFrameList_h___
 
-#include "nscore.h"
-#include "nsTraceRefcnt.h"
 #include <stdio.h> /* for FILE* */
 #include "nsDebug.h"
-#include "nsTArray.h"
+
+#ifdef DEBUG
+// DEBUG_FRAME_DUMP enables nsIFrame::List and related methods.
+// You can also define this in a non-DEBUG build if you need frame dumps.
+#define DEBUG_FRAME_DUMP 1
+#endif
 
 class nsIFrame;
 class nsIPresShell;
 class nsPresContext;
+template <class T> class nsTArray;
 
 namespace mozilla {
 namespace layout {
@@ -279,7 +283,7 @@ public:
   nsIFrame* GetNextVisualFor(nsIFrame* aFrame) const;
 #endif // IBMBIDI
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   void List(FILE* out) const;
 #endif
 
@@ -433,10 +437,7 @@ public:
       mPrev = aOther.mPrev;
     }
 
-    void Next() {
-      mPrev = mFrame;
-      Enumerator::Next();
-    }
+    inline void Next();
 
     bool AtEnd() const { return Enumerator::AtEnd(); }
 

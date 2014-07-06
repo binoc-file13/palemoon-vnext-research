@@ -8,8 +8,8 @@
 #ifndef __AccessCheck_h__
 #define __AccessCheck_h__
 
-#include "jsapi.h"
 #include "jswrapper.h"
+#include "js/Id.h"
 
 class nsIPrincipal;
 
@@ -76,7 +76,7 @@ struct CrossOriginAccessiblePropertiesOnly : public Policy {
     }
     static bool deny(js::Wrapper::Action act, JS::HandleId id) {
         // Silently fail for enumerate-like operations.
-        if (act == js::Wrapper::GET && id == JS::JSID_VOIDHANDLE)
+        if (act == js::Wrapper::GET && id == JSID_VOIDHANDLE)
             return true;
         return false;
     }
@@ -96,18 +96,6 @@ struct ExposedPropertiesOnly : public Policy {
         return act == js::Wrapper::GET;
     }
     static bool allowNativeCall(JSContext *cx, JS::IsAcceptableThis test, JS::NativeImpl impl);
-};
-
-// Components specific policy
-struct ComponentsObjectPolicy : public Policy {
-    static bool check(JSContext *cx, JSObject *wrapper, jsid id, js::Wrapper::Action act);
-
-    static bool deny(js::Wrapper::Action act, JS::HandleId id) {
-        return false;
-    }
-    static bool allowNativeCall(JSContext *cx, JS::IsAcceptableThis test, JS::NativeImpl impl) {
-        return false;
-    }
 };
 
 }

@@ -32,11 +32,10 @@
 
 #if ENABLE_YARR_JIT
 
-#include "assembler/assembler/MacroAssembler.h"
+#include "assembler/assembler/MacroAssemblerCodeRef.h"
 
-#include "MatchResult.h"
-#include "Yarr.h"
-#include "YarrPattern.h"
+#include "yarr/MatchResult.h"
+#include "yarr/Yarr.h"
 
 #if WTF_CPU_X86 && !WTF_COMPILER_MSVC && !WTF_COMPILER_SUNCC
 #define YARR_CALL __attribute__ ((regparm (3)))
@@ -47,6 +46,8 @@
 #if JS_TRACE_LOGGING
 #include "TraceLogging.h"
 #endif
+
+#include "jit/JitCommon.h"
 
 namespace JSC {
 
@@ -132,7 +133,7 @@ public:
 #endif
 
         YarrJITCode16 fn = JS_FUNC_TO_DATA_PTR(YarrJITCode16, m_ref16.code().executableAddress());
-        return MatchResult(fn(input, start, length, output));
+        return MatchResult(CALL_GENERATED_YARR_CODE4(fn, input, start, length, output));
     }
 
     MatchResult execute(const UChar* input, unsigned start, unsigned length)
@@ -146,7 +147,7 @@ public:
 #endif
 
         YarrJITCodeMatchOnly16 fn = JS_FUNC_TO_DATA_PTR(YarrJITCodeMatchOnly16, m_matchOnly16.code().executableAddress());
-        return MatchResult(fn(input, start, length));
+        return MatchResult(CALL_GENERATED_YARR_CODE3(fn, input, start, length));
     }
 
 #if ENABLE_REGEXP_TRACING

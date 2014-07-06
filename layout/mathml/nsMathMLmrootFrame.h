@@ -7,8 +7,8 @@
 #define nsMathMLmrootFrame_h___
 
 #include "mozilla/Attributes.h"
-#include "nsCOMPtr.h"
 #include "nsMathMLContainerFrame.h"
+#include "nsMathMLChar.h"
 
 //
 // <msqrt> and <mroot> -- form a radical
@@ -40,12 +40,19 @@ public:
          const nsHTMLReflowState& aReflowState,
          nsReflowStatus&          aStatus) MOZ_OVERRIDE;
 
-  virtual nscoord
-  GetIntrinsicWidth(nsRenderingContext* aRenderingContext) MOZ_OVERRIDE;
+  virtual void
+  GetIntrinsicWidthMetrics(nsRenderingContext* aRenderingContext,
+                           nsHTMLReflowMetrics& aDesiredSize) MOZ_OVERRIDE;
 
   virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                 const nsRect&           aDirtyRect,
                                 const nsDisplayListSet& aLists) MOZ_OVERRIDE;
+
+  uint8_t
+  ScriptIncrement(nsIFrame* aFrame) MOZ_OVERRIDE
+  {
+    return (aFrame && aFrame == mFrames.LastChild()) ? 2 : 0;
+  }
 
 protected:
   nsMathMLmrootFrame(nsStyleContext* aContext);

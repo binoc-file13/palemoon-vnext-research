@@ -8,7 +8,7 @@ endif
 
 include $(MOZILLA_DIR)/toolkit/mozapps/installer/signing.mk
 
-ABS_CONFIG_DIR := $(shell pwd)/$(CONFIG_DIR)
+ABS_CONFIG_DIR := $(abspath $(CONFIG_DIR))
 
 SFX_MODULE ?= $(error SFX_MODULE is not defined)
 
@@ -68,7 +68,7 @@ $(CONFIG_DIR)/7zSD.sfx:
 
 installer::
 	$(INSTALL) $(CONFIG_DIR)/setup.exe $(DEPTH)/installer-stage
-	cd $(DEPTH)/installer-stage && cp -r $(topsrcdir)/statusbar/* core && $(CYGWIN_WRAPPER) 7z a -r -t7z $(ABS_CONFIG_DIR)/app.7z -mx -m0=BCJ2 -m1=LZMA:d25 -m2=LZMA:d19 -m3=LZMA:d19 -mb0:1 -mb0s1:2 -mb0s2:3
+	cd $(DEPTH)/installer-stage && $(CYGWIN_WRAPPER) 7z a -r -t7z $(ABS_CONFIG_DIR)/app.7z -mx -m0=BCJ2 -m1=LZMA:d25 -m2=LZMA:d19 -m3=LZMA:d19 -mb0:1 -mb0s1:2 -mb0s2:3
 	$(MAKE) $(CONFIG_DIR)/7zSD.sfx
 	$(NSINSTALL) -D $(DIST)/$(PKG_INST_PATH)
 	cat $(CONFIG_DIR)/7zSD.sfx $(CONFIG_DIR)/app.tag $(CONFIG_DIR)/app.7z > "$(DIST)/$(PKG_INST_PATH)$(PKG_INST_BASENAME).exe"

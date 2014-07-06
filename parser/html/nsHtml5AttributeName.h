@@ -25,8 +25,8 @@
  * Please edit AttributeName.java instead and regenerate.
  */
 
-#ifndef nsHtml5AttributeName_h__
-#define nsHtml5AttributeName_h__
+#ifndef nsHtml5AttributeName_h
+#define nsHtml5AttributeName_h
 
 #include "nsIAtom.h"
 #include "nsHtml5AtomTable.h"
@@ -73,9 +73,9 @@ class nsHtml5AttributeName
     static nsIAtom** COLONIFIED_LOCAL(nsIAtom* name, nsIAtom* suffix);
   public:
     static nsIAtom** SAME_LOCAL(nsIAtom* name);
-    static nsHtml5AttributeName* nameByBuffer(PRUnichar* buf, int32_t offset, int32_t length, nsHtml5AtomTable* interner);
+    static nsHtml5AttributeName* nameByBuffer(char16_t* buf, int32_t offset, int32_t length, nsHtml5AtomTable* interner);
   private:
-    static int32_t bufToHash(PRUnichar* buf, int32_t len);
+    static int32_t bufToHash(char16_t* buf, int32_t len);
     int32_t* uri;
     nsIAtom** local;
     nsIAtom** prefix;
@@ -256,6 +256,7 @@ class nsHtml5AttributeName
     static nsHtml5AttributeName* ATTR_POSTER;
     static nsHtml5AttributeName* ATTR_POINTS;
     static nsHtml5AttributeName* ATTR_PROMPT;
+    static nsHtml5AttributeName* ATTR_SRCDOC;
     static nsHtml5AttributeName* ATTR_SCOPED;
     static nsHtml5AttributeName* ATTR_STRING;
     static nsHtml5AttributeName* ATTR_SCHEME;

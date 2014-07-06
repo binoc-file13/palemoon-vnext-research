@@ -14,10 +14,10 @@
 namespace mozilla {
 namespace dom {
 
-class ImageDocument : public MediaDocument,
-                      public nsIImageDocument,
-                      public imgINotificationObserver,
-                      public nsIDOMEventListener
+class ImageDocument MOZ_FINAL : public MediaDocument,
+                                public nsIImageDocument,
+                                public imgINotificationObserver,
+                                public nsIDOMEventListener
 {
 public:
   ImageDocument();
@@ -94,6 +94,8 @@ protected:
   void ResetZoomLevel();
   float GetZoomLevel();
 
+  void UpdateSizeFromLayout();
+
   enum eModeClasses {
     eNone,
     eShrinkToFit,
@@ -110,8 +112,6 @@ protected:
   float                         mVisibleHeight;
   int32_t                       mImageWidth;
   int32_t                       mImageHeight;
-  
-  nsAutoString 					  mBackgroundColor;
 
   bool                          mResizeImageByDefault;
   bool                          mClickResizingEnabled;

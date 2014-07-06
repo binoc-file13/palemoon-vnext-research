@@ -14,8 +14,8 @@
 #include "nsSVGPathGeometryElement.h"
 #include "nsSVGFilterFrame.h"
 #include "nsSVGMaskFrame.h"
-#include "nsSVGTextPathFrame.h"
 #include "nsIReflowCallback.h"
+#include "RestyleManager.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -66,21 +66,11 @@ nsSVGRenderingObserver::StopListening()
  * benefits/necessity of maintaining a second observer list.
  */
 
-#ifdef _MSC_VER
-// Disable "warning C4355: 'this' : used in base member initializer list".
-// We can ignore that warning because we know that mElement's constructor 
-// doesn't dereference the pointer passed to it.
-#pragma warning(push)
-#pragma warning(disable:4355)
-#endif
 nsSVGIDRenderingObserver::nsSVGIDRenderingObserver(nsIURI *aURI,
                                                    nsIFrame *aFrame,
                                                    bool aReferenceImage)
-  : mElement(this), mFrame(aFrame),
+  : mElement(MOZ_THIS_IN_INITIALIZER_LIST()), mFrame(aFrame),
     mFramePresShell(aFrame->PresContext()->PresShell())
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 {
   // Start watching the target element
   mElement.Reset(aFrame->GetContent(), aURI, true, aReferenceImage);
@@ -259,7 +249,7 @@ nsSVGFilterProperty::DoUpdate()
   if (!(mFrame->GetStateBits() & NS_FRAME_IN_REFLOW)) {
     NS_UpdateHint(changeHint, nsChangeHint_UpdateOverflow);
   }
-  mFramePresShell->FrameConstructor()->PostRestyleEvent(
+  mFramePresShell->GetPresContext()->RestyleManager()->PostRestyleEvent(
     mFrame->GetContent()->AsElement(), nsRestyleHint(0), changeHint);
 }
 
@@ -284,7 +274,7 @@ nsSVGMarkerProperty::DoUpdate()
     // XXXSDL KILL THIS!!!
     nsSVGUtils::ScheduleReflowSVG(mFrame);
   }
-  mFramePresShell->FrameConstructor()->PostRestyleEvent(
+  mFramePresShell->GetPresContext()->RestyleManager()->PostRestyleEvent(
     mFrame->GetContent()->AsElement(), nsRestyleHint(0), changeHint);
 }
 
@@ -313,7 +303,7 @@ nsSVGTextPathProperty::DoUpdate()
   //
   // Note that we still have to post the restyle event when we
   // change from being valid to invalid, so that mPositions on the
-  // nsSVGTextFrame2 gets updated, skipping the <textPath>, ensuring
+  // SVGTextFrame gets updated, skipping the <textPath>, ensuring
   // that nothing gets painted for that element.
   bool nowValid = TargetIsValid();
   if (!mValid && !nowValid) {
@@ -325,7 +315,7 @@ nsSVGTextPathProperty::DoUpdate()
   // Repaint asynchronously in case the path frame is being torn down
   nsChangeHint changeHint =
     nsChangeHint(nsChangeHint_RepaintFrame | nsChangeHint_UpdateTextPath);
-  mFramePresShell->FrameConstructor()->PostRestyleEvent(
+  mFramePresShell->GetPresContext()->RestyleManager()->PostRestyleEvent(
     mFrame->GetContent()->AsElement(), nsRestyleHint(0), changeHint);
 }
 
@@ -421,7 +411,6 @@ GetEffectPropertyForURI(nsIURI *aURI, nsIFrame *aFrame,
     static_cast<nsSVGEffects::URIObserverHashtable*>(props.Get(aProperty));
   if (!hashtable) {
     hashtable = new nsSVGEffects::URIObserverHashtable();
-    hashtable->Init();
     props.Set(aProperty, hashtable);
   }
   nsSVGRenderingObserver* prop =
@@ -450,7 +439,7 @@ nsSVGEffects::GetEffectProperties(nsIFrame *aFrame)
   EffectProperties result;
   const nsStyleSVGReset *style = aFrame->StyleSVGReset();
   result.mFilter = static_cast<nsSVGFilterProperty*>
-    (GetEffectProperty(style->mFilter, aFrame, FilterProperty(),
+    (GetEffectProperty(style->SingleFilter(), aFrame, FilterProperty(),
                        CreateFilterProperty));
   result.mClipPath =
     GetPaintingProperty(style->mClipPath, aFrame, ClipPathProperty());
@@ -526,7 +515,7 @@ nsSVGEffects::UpdateEffects(nsIFrame *aFrame)
 
   // Ensure that the filter is repainted correctly
   // We can't do that in DoUpdate as the referenced frame may not be valid
-  GetEffectProperty(aFrame->StyleSVGReset()->mFilter,
+  GetEffectProperty(aFrame->StyleSVGReset()->SingleFilter(),
                     aFrame, FilterProperty(), CreateFilterProperty);
 
   if (aFrame->GetType() == nsGkAtoms::svgPathGeometryFrame &&
@@ -547,7 +536,7 @@ nsSVGEffects::GetFilterProperty(nsIFrame *aFrame)
 {
   NS_ASSERTION(!aFrame->GetPrevContinuation(), "aFrame should be first continuation");
 
-  if (!aFrame->StyleSVGReset()->mFilter)
+  if (!aFrame->StyleSVGReset()->SingleFilter())
     return nullptr;
 
   return static_cast<nsSVGFilterProperty *>

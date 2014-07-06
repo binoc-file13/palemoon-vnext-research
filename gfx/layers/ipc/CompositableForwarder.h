@@ -7,10 +7,17 @@
 #ifndef MOZILLA_LAYERS_COMPOSITABLEFORWARDER
 #define MOZILLA_LAYERS_COMPOSITABLEFORWARDER
 
-#include "mozilla/StandardInteger.h"
-#include "gfxASurface.h"
-#include "GLDefs.h"
-#include "mozilla/layers/ISurfaceAllocator.h"
+#include <stdint.h>                     // for int32_t, uint64_t
+#include "gfxTypes.h"
+#include "mozilla/Attributes.h"         // for MOZ_OVERRIDE
+#include "mozilla/layers/CompositorTypes.h"
+#include "mozilla/layers/ISurfaceAllocator.h"  // for ISurfaceAllocator
+#include "mozilla/layers/LayersTypes.h"  // for LayersBackend
+#include "mozilla/layers/TextureClient.h"  // for TextureClient
+#include "nsRegion.h"                   // for nsIntRegion
+
+struct nsIntPoint;
+struct nsIntRect;
 
 namespace mozilla {
 namespace layers {
@@ -18,9 +25,11 @@ namespace layers {
 class CompositableClient;
 class TextureFactoryIdentifier;
 class SurfaceDescriptor;
+class SurfaceDescriptorTiles;
 class ThebesBufferData;
-class TextureClient;
+class DeprecatedTextureClient;
 class BasicTiledLayerBuffer;
+class PTextureChild;
 
 /**
  * A transaction is a set of changes that happenned on the content side, that
@@ -35,15 +44,11 @@ class BasicTiledLayerBuffer;
 class CompositableForwarder : public ISurfaceAllocator
 {
   friend class AutoOpenSurface;
-  friend class TextureClientShmem;
+  friend class DeprecatedTextureClientShmem;
 public:
-  typedef gfxASurface::gfxContentType gfxContentType;
 
   CompositableForwarder()
-  : mMaxTextureSize(0)
-  , mCompositorBackend(layers::LAYERS_NONE)
-  , mSupportsTextureBlitting(false)
-  , mSupportsPartialUploads(false)
+    : mMultiProcess(false)
   {}
 
   /**
@@ -87,7 +92,12 @@ public:
   virtual void DestroyThebesBuffer(CompositableClient* aCompositable) = 0;
 
   virtual void PaintedTiledLayerBuffer(CompositableClient* aCompositable,
-                                       BasicTiledLayerBuffer* aTiledLayerBuffer) = 0;
+                                       const SurfaceDescriptorTiles& aTiledDescriptor) = 0;
+
+  /**
+   * Create a TextureChild/Parent pair as as well as the TextureHost on the parent side.
+   */
+  virtual PTextureChild* CreateTexture(const SurfaceDescriptor& aSharedData, TextureFlags aFlags) = 0;
 
   /**
    * Communicate to the compositor that the texture identified by aCompositable
@@ -145,12 +155,56 @@ public:
    */
   virtual void DestroyedThebesBuffer(const SurfaceDescriptor& aBackBufferToDestroy) = 0;
 
+  /**
+   * Tell the compositor side to delete the TextureHost corresponding to the
+   * TextureClient passed in parameter.
+   */
+  virtual void RemoveTexture(TextureClient* aTexture) = 0;
+
+  /**
+   * Forcibly remove texture data from TextureClient
+   * after a tansaction with Compositor.
+   */
+  virtual void AddForceRemovingTexture(TextureClient* aClient)
+  {
+    if (aClient) {
+      mForceRemovingTextures.AppendElement(aClient);
+    }
+  }
+
+  /**
+   * Forcibly remove texture data from TextureClient
+   * This function needs to be called after a tansaction with Compositor.
+   */
+  virtual void ForceRemoveTexturesIfNecessary()
+  {
+    for (uint32_t i = 0; i < mForceRemovingTextures.Length(); i++) {
+       mForceRemovingTextures[i]->ForceRemove();
+    }
+    mForceRemovingTextures.Clear();
+  }
+
+  /**
+   * Tell the CompositableHost on the compositor side what texture to use for
+   * the next composition.
+   */
+  virtual void UseTexture(CompositableClient* aCompositable,
+                          TextureClient* aClient) = 0;
+
+  /**
+   * Tell the compositor side that the shared data has been modified so that
+   * it can react accordingly (upload textures, etc.).
+   */
+  virtual void UpdatedTexture(CompositableClient* aCompositable,
+                              TextureClient* aTexture,
+                              nsIntRegion* aRegion) = 0;
+
   void IdentifyTextureHost(const TextureFactoryIdentifier& aIdentifier);
 
   /**
    * Returns the maximum texture size supported by the compositor.
    */
-  virtual int32_t GetMaxTextureSize() const { return mMaxTextureSize; }
+  virtual int32_t GetMaxTextureSize() const { return mTextureFactoryIdentifier.mMaxTextureSize; }
 
   bool IsOnCompositorSide() const MOZ_OVERRIDE { return false; }
 
@@ -161,24 +215,33 @@ public:
    */
   LayersBackend GetCompositorBackendType() const
   {
-    return mCompositorBackend;
+    return mTextureFactoryIdentifier.mParentBackend;
   }
 
   bool SupportsTextureBlitting() const
   {
-    return mSupportsTextureBlitting;
+    return mTextureFactoryIdentifier.mSupportsTextureBlitting;
   }
 
   bool SupportsPartialUploads() const
   {
-    return mSupportsPartialUploads;
+    return mTextureFactoryIdentifier.mSupportsPartialUploads;
+  }
+
+  bool ForwardsToDifferentProcess() const
+  {
+    return mMultiProcess;
+  }
+
+  const TextureFactoryIdentifier& GetTextureFactoryIdentifier() const
+  {
+    return mTextureFactoryIdentifier;
   }
 
 protected:
-  uint32_t mMaxTextureSize;
-  LayersBackend mCompositorBackend;
-  bool mSupportsTextureBlitting;
-  bool mSupportsPartialUploads;
+  TextureFactoryIdentifier mTextureFactoryIdentifier;
+  bool mMultiProcess;
+  nsTArray<RefPtr<TextureClient> > mForceRemovingTextures;
 };
 
 } // namespace

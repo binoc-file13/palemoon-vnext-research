@@ -12,7 +12,6 @@
     "power":{},
     "webapps-manage":{},
     "mobileconnection":{},
-    "mozBluetooth":{},
     "bluetooth":{},
     "telephony":{},
     "voicemail":{},
@@ -22,18 +21,22 @@
     "camera":{},
     "geolocation":{},
     "wifi-manage":{},
-    "wifi":{},
     "desktop-notification":{},
     "idle":{},
     "network-events":{},
     "embed-apps":{},
-    "systemXHR":{}
+    "audio-channel-content":{},
+    "audio-channel-alarm":{}
   },
   "locales": {
     "en-US": {
       "name": "Mochitest",
       "description": "Mochitests"
     }
+  },
+  "datastores-access" : {
+    "foo" : { "readonly": false },
+    "bar" : { "readonly": false }
   },
   "default_locale": "en-US"
 }

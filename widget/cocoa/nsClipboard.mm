@@ -149,11 +149,11 @@ nsClipboard::TransferableFromPasteboard(nsITransferable *aTransferable, NSPasteb
       dataLength = signedDataLength;
 
       // skip BOM (Byte Order Mark to distinguish little or big endian)      
-      PRUnichar* clipboardDataPtrNoBOM = (PRUnichar*)clipboardDataPtr;
+      char16_t* clipboardDataPtrNoBOM = (char16_t*)clipboardDataPtr;
       if ((dataLength > 2) &&
           ((clipboardDataPtrNoBOM[0] == 0xFEFF) ||
            (clipboardDataPtrNoBOM[0] == 0xFFFE))) {
-        dataLength -= sizeof(PRUnichar);
+        dataLength -= sizeof(char16_t);
         clipboardDataPtrNoBOM += 1;
       }
 
@@ -401,7 +401,7 @@ nsClipboard::PasteboardDictFromTransferable(nsITransferable* aTransferable)
 
       NSString* nativeString;
       if (data)
-        nativeString = [NSString stringWithCharacters:(const unichar*)data length:(dataSize / sizeof(PRUnichar))];
+        nativeString = [NSString stringWithCharacters:(const unichar*)data length:(dataSize / sizeof(char16_t))];
       else
         nativeString = [NSString string];
       
@@ -431,10 +431,9 @@ nsClipboard::PasteboardDictFromTransferable(nsITransferable* aTransferable)
         continue;
       }
 
-      nsRefPtr<gfxASurface> surface;
-      image->GetFrame(imgIContainer::FRAME_CURRENT,
-                      imgIContainer::FLAG_SYNC_DECODE,
-                      getter_AddRefs(surface));
+      nsRefPtr<gfxASurface> surface =
+        image->GetFrame(imgIContainer::FRAME_CURRENT,
+                        imgIContainer::FLAG_SYNC_DECODE);
       if (!surface) {
         continue;
       }
@@ -471,6 +470,38 @@ nsClipboard::PasteboardDictFromTransferable(nsITransferable* aTransferable)
       if (tiffData)
         CFRelease(tiffData);
     }
+    else if (flavorStr.EqualsLiteral(kFileMime)) {
+      uint32_t len = 0;
+      nsCOMPtr<nsISupports> genericFile;
+      rv = aTransferable->GetTransferData(flavorStr, getter_AddRefs(genericFile), &len);
+      if (NS_FAILED(rv)) {
+        continue;
+      }
+
+      nsCOMPtr<nsIFile> file(do_QueryInterface(genericFile));
+      if (!file) {
+        nsCOMPtr<nsISupportsInterfacePointer> ptr(do_QueryInterface(genericFile));
+
+        if (ptr) {
+          ptr->GetData(getter_AddRefs(genericFile));
+          file = do_QueryInterface(genericFile);
+        }
+      }
+
+      if (!file) {
+        continue;
+      }
+
+      nsAutoString fileURI;
+      rv = file->GetPath(fileURI);
+      if (NS_FAILED(rv)) {
+        continue;
+      }
+
+      NSString* str = nsCocoaUtils::ToNSString(fileURI);
+      NSArray* fileList = [NSArray arrayWithObjects:str, nil];
+      [pasteboardOutputDict setObject:fileList forKey:NSFilenamesPboardType];
+    }
     else if (flavorStr.EqualsLiteral(kFilePromiseMime)) {
       [pasteboardOutputDict setObject:[NSArray arrayWithObject:@""] forKey:NSFilesPromisePboardType];      
     }
@@ -484,7 +515,7 @@ nsClipboard::PasteboardDictFromTransferable(nsITransferable* aTransferable)
       urlObject->GetData(url);
 
       // A newline embedded in the URL means that the form is actually URL + title.
-      int32_t newlinePos = url.FindChar(PRUnichar('\n'));
+      int32_t newlinePos = url.FindChar(char16_t('\n'));
       if (newlinePos >= 0) {
         url.Truncate(newlinePos);
 
@@ -492,7 +523,8 @@ nsClipboard::PasteboardDictFromTransferable(nsITransferable* aTransferable)
         urlObject->GetData(urlTitle);
         urlTitle.Mid(urlTitle, newlinePos + 1, len - (newlinePos + 1));
 
-        NSString *nativeTitle = [[NSString alloc] initWithCharacters:urlTitle.get() length:urlTitle.Length()];
+        NSString *nativeTitle = [[NSString alloc] initWithCharacters:reinterpret_cast<const unichar*>(urlTitle.get())
+                                                              length:urlTitle.Length()];
         // be nice to Carbon apps, normalize the receiver's contents using Form C.
         [pasteboardOutputDict setObject:[nativeTitle precomposedStringWithCanonicalMapping] forKey:kCorePboardType_urln];
         // Also put the title out as 'urld', since some recipients will look for that.

@@ -4,17 +4,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsTraceRefcntImpl.h"
+#include "mozilla/IntegerPrintfMacros.h"
 #include "nsXPCOMPrivate.h"
 #include "nscore.h"
 #include "nsISupports.h"
 #include "nsTArray.h"
 #include "prenv.h"
-#include "prprf.h"
-#include "prlog.h"
 #include "plstr.h"
 #include "prlink.h"
-#include <stdlib.h>
-#include "nsCOMPtr.h"
 #include "nsCRT.h"
 #include <math.h>
 #include "nsStackWalkPrivate.h"
@@ -34,7 +31,7 @@
 #endif
 
 #include "mozilla/BlockingResourceBase.h"
-#include "mozilla/mozPoisonWrite.h"
+#include "mozilla/PoisonIOInterposer.h"
 
 #ifdef HAVE_DLOPEN
 #include <dlfcn.h>
@@ -62,6 +59,10 @@ NS_MeanAndStdDev(double n, double sumOfValues, double sumOfSquaredValues,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#if !defined(XP_WIN) || (!defined(MOZ_OPTIMIZE) || defined(MOZ_PROFILING) || defined(DEBUG))
+#define STACKWALKING_AVAILABLE
+#endif
 
 #define NS_IMPL_REFCNT_LOGGING
 
@@ -185,8 +186,7 @@ static void
 TypesToLogFreeEntry(void *pool, PLHashEntry *he, unsigned flag)
 {
     if (flag == HT_FREE_ENTRY) {
-        nsCRT::free(const_cast<char*>
-                              (reinterpret_cast<const char*>(he->key)));
+        free(const_cast<char*>(reinterpret_cast<const char*>(he->key)));
         PR_Free(he);
     }
 }
@@ -368,7 +368,7 @@ public:
         stats->mCreates != 0 ||
         meanObjs != 0 ||
         stddevObjs != 0) {
-      fprintf(out, "%4d %-40.40s %8d %8llu %8llu %8llu (%8.2f +/- %8.2f) %8llu %8llu (%8.2f +/- %8.2f)\n",
+      fprintf(out, "%4d %-40.40s %8d %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " (%8.2f +/- %8.2f) %8" PRIu64 " %8" PRIu64 " (%8.2f +/- %8.2f)\n",
               i+1, mClassName,
               (int32_t)mClassSize,
               (nsCRT::strcmp(mClassName, "TOTAL"))
@@ -415,7 +415,7 @@ RecreateBloatView()
                                PL_HashString,
                                PL_CompareStrings,
                                PL_CompareValues,
-                               &bloatViewHashAllocOps, NULL);
+                               &bloatViewHashAllocOps, nullptr);
 }
 
 static BloatEntry*
@@ -424,16 +424,16 @@ GetBloatEntry(const char* aTypeName, uint32_t aInstanceSize)
   if (!gBloatView) {
     RecreateBloatView();
   }
-  BloatEntry* entry = NULL;
+  BloatEntry* entry = nullptr;
   if (gBloatView) {
     entry = (BloatEntry*)PL_HashTableLookup(gBloatView, aTypeName);
-    if (entry == NULL && aInstanceSize > 0) {
+    if (entry == nullptr && aInstanceSize > 0) {
 
       entry = new BloatEntry(aTypeName, aInstanceSize);
       PLHashEntry* e = PL_HashTableAdd(gBloatView, aTypeName, entry);
-      if (e == NULL) {
+      if (e == nullptr) {
         delete entry;
-        entry = NULL;
+        entry = nullptr;
       }
     } else {
       NS_ASSERTION(aInstanceSize == 0 ||
@@ -448,13 +448,15 @@ static int DumpSerialNumbers(PLHashEntry* aHashEntry, int aIndex, void* aClosure
 {
   serialNumberRecord* record = reinterpret_cast<serialNumberRecord *>(aHashEntry->value);
 #ifdef HAVE_CPP_DYNAMIC_CAST_TO_VOID_PTR
-  fprintf((FILE*) aClosure, "%ld @%p (%d references; %d from COMPtrs)\n",
+  fprintf((FILE*) aClosure, "%" PRIdPTR
+                            " @%p (%d references; %d from COMPtrs)\n",
                             record->serialNumber,
                             NS_INT32_TO_PTR(aHashEntry->key),
                             record->refCount,
                             record->COMPtrCount);
 #else
-  fprintf((FILE*) aClosure, "%ld @%p (%d references)\n",
+  fprintf((FILE*) aClosure, "%" PRIdPTR
+                            " @%p (%d references)\n",
                             record->serialNumber,
                             NS_INT32_TO_PTR(aHashEntry->key),
                             record->refCount);
@@ -648,7 +650,7 @@ static bool InitLog(const char* envVar, const char* msg, FILE* *result)
           fname.AppendLiteral(".log");
       }
       stream = ::fopen(fname.get(), "w" FOPEN_NO_INHERIT);
-      if (stream != NULL) {
+      if (stream != nullptr) {
         MozillaRegisterDebugFD(fileno(stream));
         *result = stream;
         fprintf(stdout, "### %s defined -- logging %s to %s\n",
@@ -658,7 +660,7 @@ static bool InitLog(const char* envVar, const char* msg, FILE* *result)
         fprintf(stdout, "### %s defined -- unable to log %s to %s\n",
                 envVar, msg, fname.get());
       }
-      return stream != NULL;
+      return stream != nullptr;
     }
   }
   return false;
@@ -745,7 +747,7 @@ static void InitTraceLog(void)
                                   PL_HashString,
                                   PL_CompareStrings,
                                   PL_CompareValues,
-                                  &typesToLogHashAllocOps, NULL);
+                                  &typesToLogHashAllocOps, nullptr);
     if (!gTypesToLog) {
       NS_WARNING("out of memory");
       fprintf(stdout, "### XPCOM_MEM_LOG_CLASSES defined -- unable to log specific classes\n");
@@ -758,7 +760,7 @@ static void InitTraceLog(void)
         if (cm) {
           *cm = '\0';
         }
-        PL_HashTableAdd(gTypesToLog, nsCRT::strdup(cp), (void*)1);
+        PL_HashTableAdd(gTypesToLog, strdup(cp), (void*)1);
         fprintf(stdout, "%s ", cp);
         if (!cm) break;
         *cm = ',';
@@ -771,7 +773,7 @@ static void InitTraceLog(void)
                                      HashNumber,
                                      PL_CompareValues,
                                      PL_CompareValues,
-                                     &serialNumberHashAllocOps, NULL);
+                                     &serialNumberHashAllocOps, nullptr);
 
 
   }
@@ -782,7 +784,7 @@ static void InitTraceLog(void)
                                     HashNumber,
                                     PL_CompareValues,
                                     PL_CompareValues,
-                                    NULL, NULL);
+                                    nullptr, nullptr);
 
     if (!gObjectsToLog) {
       NS_WARNING("out of memory");
@@ -816,7 +818,7 @@ static void InitTraceLog(void)
         }
         for (intptr_t serialno = bottom; serialno <= top; serialno++) {
           PL_HashTableAdd(gObjectsToLog, (const void*)serialno, (void*)1);
-          fprintf(stdout, "%ld ", serialno);
+          fprintf(stdout, "%" PRIdPTR " ", serialno);
         }
         if (!cm) break;
         *cm = ',';
@@ -838,6 +840,7 @@ static void InitTraceLog(void)
 
 extern "C" {
 
+#ifdef STACKWALKING_AVAILABLE
 static void PrintStackFrame(void *aPC, void *aSP, void *aClosure)
 {
   FILE *stream = (FILE*)aClosure;
@@ -848,14 +851,17 @@ static void PrintStackFrame(void *aPC, void *aSP, void *aClosure)
   NS_FormatCodeAddressDetails(aPC, &details, buf, sizeof(buf));
   fputs(buf, stream);
 }
+#endif
 
 }
 
 void
 nsTraceRefcntImpl::WalkTheStack(FILE* aStream)
 {
+#ifdef STACKWALKING_AVAILABLE
   NS_StackWalk(PrintStackFrame, /* skipFrames */ 2, /* maxFrames */ 0, aStream,
                0, nullptr);
+#endif
 }
 
 //----------------------------------------------------------------------
@@ -897,7 +903,9 @@ EXPORT_XPCOM_API(void)
 NS_LogInit()
 {
   // FIXME: This is called multiple times, we should probably not allow that.
+#ifdef STACKWALKING_AVAILABLE
   StackWalkInitCriticalAddress();
+#endif
 #ifdef NS_IMPL_REFCNT_LOGGING
   if (++gInitCount)
     nsTraceRefcntImpl::SetActivityIsLegal(true);
@@ -991,7 +999,7 @@ NS_LogAddRef(void* aPtr, nsrefcnt aRefcnt,
 
     bool loggingThisObject = (!gObjectsToLog || LogThisObj(serialno));
     if (aRefcnt == 1 && gAllocLog && loggingThisType && loggingThisObject) {
-      fprintf(gAllocLog, "\n<%s> 0x%08X %ld Create\n",
+      fprintf(gAllocLog, "\n<%s> 0x%08X %" PRIdPTR " Create\n",
               aClazz, NS_PTR_TO_INT32(aPtr), serialno);
       nsTraceRefcntImpl::WalkTheStack(gAllocLog);
     }
@@ -1003,7 +1011,7 @@ NS_LogAddRef(void* aPtr, nsrefcnt aRefcnt,
       else {
           // Can't use PR_LOG(), b/c it truncates the line
           fprintf(gRefcntsLog,
-                  "\n<%s> 0x%08X %ld AddRef %d\n", aClazz, NS_PTR_TO_INT32(aPtr), serialno, aRefcnt);
+                  "\n<%s> 0x%08X %" PRIdPTR " AddRef %d\n", aClazz, NS_PTR_TO_INT32(aPtr), serialno, aRefcnt);
           nsTraceRefcntImpl::WalkTheStack(gRefcntsLog);
           fflush(gRefcntsLog);
       }
@@ -1051,7 +1059,7 @@ NS_LogRelease(void* aPtr, nsrefcnt aRefcnt, const char* aClazz)
       else {
           // Can't use PR_LOG(), b/c it truncates the line
           fprintf(gRefcntsLog,
-                  "\n<%s> 0x%08X %ld Release %d\n", aClazz, NS_PTR_TO_INT32(aPtr), serialno, aRefcnt);
+                  "\n<%s> 0x%08X %" PRIdPTR " Release %d\n", aClazz, NS_PTR_TO_INT32(aPtr), serialno, aRefcnt);
           nsTraceRefcntImpl::WalkTheStack(gRefcntsLog);
           fflush(gRefcntsLog);
       }
@@ -1062,7 +1070,7 @@ NS_LogRelease(void* aPtr, nsrefcnt aRefcnt, const char* aClazz)
 
     if (aRefcnt == 0 && gAllocLog && loggingThisType && loggingThisObject) {
       fprintf(gAllocLog,
-              "\n<%s> 0x%08X %ld Destroy\n",
+              "\n<%s> 0x%08X %" PRIdPTR " Destroy\n",
               aClazz, NS_PTR_TO_INT32(aPtr), serialno);
       nsTraceRefcntImpl::WalkTheStack(gAllocLog);
     }
@@ -1102,7 +1110,7 @@ NS_LogCtor(void* aPtr, const char* aType, uint32_t aInstanceSize)
 
     bool loggingThisObject = (!gObjectsToLog || LogThisObj(serialno));
     if (gAllocLog && loggingThisType && loggingThisObject) {
-      fprintf(gAllocLog, "\n<%s> 0x%08X %ld Ctor (%d)\n",
+      fprintf(gAllocLog, "\n<%s> 0x%08X %" PRIdPTR " Ctor (%d)\n",
              aType, NS_PTR_TO_INT32(aPtr), serialno, aInstanceSize);
       nsTraceRefcntImpl::WalkTheStack(gAllocLog);
     }
@@ -1143,7 +1151,7 @@ NS_LogDtor(void* aPtr, const char* aType, uint32_t aInstanceSize)
     // (If we're on a losing architecture, don't do this because we'll be
     // using LogDeleteXPCOM instead to get file and line numbers.)
     if (gAllocLog && loggingThisType && loggingThisObject) {
-      fprintf(gAllocLog, "\n<%s> 0x%08X %ld Dtor (%d)\n",
+      fprintf(gAllocLog, "\n<%s> 0x%08X %" PRIdPTR " Dtor (%d)\n",
              aType, NS_PTR_TO_INT32(aPtr), serialno, aInstanceSize);
       nsTraceRefcntImpl::WalkTheStack(gAllocLog);
     }
@@ -1184,7 +1192,7 @@ NS_LogCOMPtrAddRef(void* aCOMPtr, nsISupports* aObject)
     bool loggingThisObject = (!gObjectsToLog || LogThisObj(serialno));
 
     if (gCOMPtrLog && loggingThisObject) {
-      fprintf(gCOMPtrLog, "\n<?> 0x%08X %ld nsCOMPtrAddRef %d 0x%08X\n",
+      fprintf(gCOMPtrLog, "\n<?> 0x%08X %" PRIdPTR " nsCOMPtrAddRef %d 0x%08X\n",
               NS_PTR_TO_INT32(object), serialno, count?(*count):-1, NS_PTR_TO_INT32(aCOMPtr));
       nsTraceRefcntImpl::WalkTheStack(gCOMPtrLog);
     }
@@ -1225,7 +1233,7 @@ NS_LogCOMPtrRelease(void* aCOMPtr, nsISupports* aObject)
     bool loggingThisObject = (!gObjectsToLog || LogThisObj(serialno));
 
     if (gCOMPtrLog && loggingThisObject) {
-      fprintf(gCOMPtrLog, "\n<?> 0x%08X %ld nsCOMPtrRelease %d 0x%08X\n",
+      fprintf(gCOMPtrLog, "\n<?> 0x%08X %" PRIdPTR " nsCOMPtrRelease %d 0x%08X\n",
               NS_PTR_TO_INT32(object), serialno, count?(*count):-1, NS_PTR_TO_INT32(aCOMPtr));
       nsTraceRefcntImpl::WalkTheStack(gCOMPtrLog);
     }

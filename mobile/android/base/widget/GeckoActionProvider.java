@@ -20,6 +20,7 @@ import android.view.View;
 import android.view.View.OnClickListener;
 
 public class GeckoActionProvider extends ActionProvider {
+    private static int MAX_HISTORY_SIZE = 2;
 
     /**
      * A listener to know when a target was selected.
@@ -53,10 +54,22 @@ public class GeckoActionProvider extends ActionProvider {
         MenuItemActionView view = new MenuItemActionView(mContext, null);
         view.setActionButtonClickListener(mCallbacks);
 
-        if (dataModel.getHistorySize() > 0) {
-            PackageManager packageManager = mContext.getPackageManager();
-            ResolveInfo defaultActivity = dataModel.getDefaultActivity();
-            view.setActionButton(defaultActivity == null ? null : defaultActivity.loadIcon(packageManager));
+        final PackageManager packageManager = mContext.getPackageManager();
+        int historySize = dataModel.getDistinctActivityCountInHistory();
+        if (historySize > MAX_HISTORY_SIZE) {
+            historySize = MAX_HISTORY_SIZE;
+        }
+
+        // Historical data is dependent on past selection of activities.
+        // Activity count is determined by the number of activities that can handle
+        // the particular intent. When no intent is set, the activity count is 0,
+        // while the history count can be a valid number.
+        if (historySize > dataModel.getActivityCount()) {
+            return view;
+        }
+
+        for (int i = 0; i < historySize; i++) {
+            view.addActionButton(dataModel.getActivity(i).loadIcon(packageManager));
         }
 
         return view;
@@ -101,6 +114,11 @@ public class GeckoActionProvider extends ActionProvider {
     public void setIntent(Intent intent) {
         ActivityChooserModel dataModel = ActivityChooserModel.get(mContext, mHistoryFileName);
         dataModel.setIntent(intent);
+
+        // Inform the target listener to refresh it's UI, if needed.
+        if (mOnTargetListener != null) {
+            mOnTargetListener.onTargetSelected();
+        }
     }
 
     public void setOnTargetSelectedListener(OnTargetSelectedListener listener) {
@@ -113,14 +131,15 @@ public class GeckoActionProvider extends ActionProvider {
     private class Callbacks implements OnMenuItemClickListener,
                                        OnClickListener {
         private void chooseActivity(int index) { 
-            if (mOnTargetListener != null)
-                mOnTargetListener.onTargetSelected();
-
             ActivityChooserModel dataModel = ActivityChooserModel.get(mContext, mHistoryFileName);
             Intent launchIntent = dataModel.chooseActivity(index);
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET);
                 mContext.startActivity(launchIntent);
+            }
+
+            if (mOnTargetListener != null) {
+                mOnTargetListener.onTargetSelected();
             }
         }
 
@@ -132,9 +151,9 @@ public class GeckoActionProvider extends ActionProvider {
 
         @Override
         public void onClick(View view) {
+            Integer index = (Integer) view.getTag();
             ActivityChooserModel dataModel = ActivityChooserModel.get(mContext, mHistoryFileName);
-            chooseActivity(dataModel.getActivityIndex(dataModel.getDefaultActivity()));
+            chooseActivity(index);
         }
     }
 }
-

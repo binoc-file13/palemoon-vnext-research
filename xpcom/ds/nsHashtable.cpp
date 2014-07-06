@@ -16,11 +16,11 @@
 
 #include <string.h>
 #include "prlog.h"
+#include "prlock.h"
 #include "nsHashtable.h"
-#include "nsReadableUtils.h"
 #include "nsIObjectInputStream.h"
 #include "nsIObjectOutputStream.h"
-#include "nsCRT.h"
+#include "nsCRTGlue.h"
 #include "mozilla/HashFunctions.h"
 
 using namespace mozilla;
@@ -119,7 +119,7 @@ nsHashKey::Write(nsIObjectOutputStream* aStream) const
 }
 
 nsHashtable::nsHashtable(uint32_t aInitSize, bool threadSafe)
-  : mLock(NULL), mEnumerating(false)
+  : mLock(nullptr), mEnumerating(false)
 {
     MOZ_COUNT_CTOR(nsHashtable);
 
@@ -134,10 +134,10 @@ nsHashtable::nsHashtable(uint32_t aInitSize, bool threadSafe)
     
     if (threadSafe) {
         mLock = PR_NewLock();
-        if (mLock == NULL) {
+        if (mLock == nullptr) {
             // Cannot create a lock. If running on a multiprocessing system
             // we are sure to die.
-            PR_ASSERT(mLock != NULL);
+            PR_ASSERT(mLock != nullptr);
         }
     }
 }
@@ -171,7 +171,7 @@ bool nsHashtable::Exists(nsHashKey *aKey)
 
 void *nsHashtable::Put(nsHashKey *aKey, void *aData)
 {
-    void *res =  NULL;
+    void *res =  nullptr;
 
     if (!mHashtable.ops) return nullptr;
     
@@ -299,7 +299,7 @@ hashEnumerateRemove(PLDHashTable*, PLDHashEntryHdr* hdr, uint32_t i, void *arg)
 }
 
 void nsHashtable::Reset() {
-    Reset(NULL);
+    Reset(nullptr);
 }
 
 void nsHashtable::Reset(nsHashtableEnumFunc destroyFunc, void* aClosure)
@@ -531,8 +531,8 @@ nsCStringKey::Clone() const
 
     uint32_t len = mStrLen * sizeof(char);
     char* str = (char*)nsMemory::Alloc(len + sizeof(char));
-    if (str == NULL)
-        return NULL;
+    if (str == nullptr)
+        return nullptr;
     memcpy(str, mStr, len);
     str[len] = 0;
     return new nsCStringKey(str, mStrLen, OWN);
@@ -566,8 +566,8 @@ nsStringKey::nsStringKey(const nsStringKey& aKey)
     : mStr(aKey.mStr), mStrLen(aKey.mStrLen), mOwnership(aKey.mOwnership)
 {
     if (mOwnership != NEVER_OWN) {
-        uint32_t len = mStrLen * sizeof(PRUnichar);
-        PRUnichar* str = reinterpret_cast<PRUnichar*>(nsMemory::Alloc(len + sizeof(PRUnichar)));
+        uint32_t len = mStrLen * sizeof(char16_t);
+        char16_t* str = reinterpret_cast<char16_t*>(nsMemory::Alloc(len + sizeof(char16_t)));
         if (!str) {
             // Pray we don't dangle!
             mOwnership = NEVER_OWN;
@@ -586,7 +586,7 @@ nsStringKey::nsStringKey(const nsStringKey& aKey)
 }
 
 nsStringKey::nsStringKey(const nsAFlatString& str)
-    : mStr(const_cast<PRUnichar*>(str.get())),
+    : mStr((char16_t*)str.get()),
       mStrLen(str.Length()),
       mOwnership(OWN_CLONE)
 {
@@ -609,8 +609,8 @@ nsStringKey::nsStringKey(const nsAString& str)
     MOZ_COUNT_CTOR(nsStringKey);
 }
 
-nsStringKey::nsStringKey(const PRUnichar* str, int32_t strLen, Ownership own)
-    : mStr((PRUnichar*)str), mStrLen(strLen), mOwnership(own)
+nsStringKey::nsStringKey(const char16_t* str, int32_t strLen, Ownership own)
+    : mStr((char16_t*)str), mStrLen(strLen), mOwnership(own)
 {
     NS_ASSERTION(mStr, "null string key");
     if (mStrLen == uint32_t(-1))
@@ -643,7 +643,7 @@ nsStringKey::Equals(const nsHashKey* aKey) const
     NS_ASSERTION(other->mStrLen != uint32_t(-1), "never called HashCode");
     if (mStrLen != other->mStrLen)
         return false;
-    return memcmp(mStr, other->mStr, mStrLen * sizeof(PRUnichar)) == 0;
+    return memcmp(mStr, other->mStr, mStrLen * sizeof(char16_t)) == 0;
 }
 
 nsHashKey*
@@ -652,10 +652,10 @@ nsStringKey::Clone() const
     if (mOwnership == NEVER_OWN)
         return new nsStringKey(mStr, mStrLen, NEVER_OWN);
 
-    uint32_t len = (mStrLen+1) * sizeof(PRUnichar);
-    PRUnichar* str = (PRUnichar*)nsMemory::Alloc(len);
-    if (str == NULL)
-        return NULL;
+    uint32_t len = (mStrLen+1) * sizeof(char16_t);
+    char16_t* str = (char16_t*)nsMemory::Alloc(len);
+    if (str == nullptr)
+        return nullptr;
     memcpy(str, mStr, len);
     return new nsStringKey(str, mStrLen, OWN);
 }

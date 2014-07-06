@@ -40,20 +40,9 @@ WifiGeoCoordsObject.prototype = {
                                     classDescription: "wifi geo position coords object"}),
 };
 
-function WifiGeoPositionObject(lat, lng, acc, cc, tz, zip, city, rc, region, country, isp, org, as) {
-  this.coords = new WifiGeoCoordsObject(lat, lng, acc, 0, null);
+function WifiGeoPositionObject(lat, lng, acc) {
+  this.coords = new WifiGeoCoordsObject(lat, lng, acc, 0, 0);
   this.address = null;
-  this.countrycode = cc;
-  this.timezone = tz;
-  this.zipcode = zip;
-  this.postalcode = zip;
-  this.city = city;
-  this.regioncode = rc;
-  this.region = region;
-  this.country = country;
-  this.isp = isp;
-  this.org = org;
-  this.as = as;
   this.timestamp = Date.now();
 }
 
@@ -84,6 +73,9 @@ function WifiGeoPositionProvider() {
   this.timer = null;
   this.hasSeenWiFi = false;
   this.started = false;
+  // this is only used when logging is enabled, to debug interactions with the
+  // geolocation service
+  this.highAccuracy = false;
 }
 
 WifiGeoPositionProvider.prototype = {
@@ -99,17 +91,14 @@ WifiGeoPositionProvider.prototype = {
 
     LOG("startup called.  testing mode is" + gTestingEnabled);
 
-    // if we don't see anything in 5 seconds, kick off one IP geo lookup.
+    // if we don't see anything in 5 seconds, kick of one IP geo lookup.
     // if we are testing, just hammer this callback so that we are more or less
     // always sending data.  It doesn't matter if we have an access point or not.
-    // Pale Moon: hammering with 200ms is problematic for our geoIP provider. Testing
-    // mode adjusted to 1000 ms. Adjusted the initial interval to 2 seconds
-    // as well, which should be sufficient on modern, responsive geo hardware.
     this.timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
     if (!gTestingEnabled)
-      this.timer.initWithCallback(this, 2000, this.timer.TYPE_ONE_SHOT);
+      this.timer.initWithCallback(this, 5000, this.timer.TYPE_ONE_SHOT);
     else
-      this.timer.initWithCallback(this, 1000, this.timer.TYPE_REPEATING_SLACK);
+      this.timer.initWithCallback(this, 200, this.timer.TYPE_REPEATING_SLACK);
   },
 
   watch: function(c) {
@@ -146,19 +135,24 @@ WifiGeoPositionProvider.prototype = {
   },
 
   setHighAccuracy: function(enable) {
+    this.highAccuracy = enable;
+    LOG("setting highAccuracy to " + (this.highAccuracy?"TRUE":"FALSE"));
   },
 
   onChange: function(accessPoints) {
-    LOG("onChange called");
+    LOG("onChange called, highAccuracy = " + (this.highAccuracy?"TRUE":"FALSE"));
     this.hasSeenWiFi = true;
+
+    Cc["@mozilla.org/geolocation/service;1"].getService(Ci.nsIGeolocationUpdate)
+        .locationUpdatePending();
 
     let url = Services.urlFormatter.formatURLPref("geo.wifi.uri");
 
     function isPublic(ap) {
         let mask = "_nomap"
-        let result = ap.ssid.indexOf(mask, ap.ssid.length - mask.length) == -1;
+        let result = ap.ssid.indexOf(mask, ap.ssid.length - mask.length);
         if (result != -1) {
-            LOG("Filtering out " + ap.ssid);
+            LOG("Filtering out " + ap.ssid + " " + result);
         }
         return result;
     };
@@ -184,51 +178,36 @@ WifiGeoPositionProvider.prototype = {
 
     // This is a background load
   
-/* Google
-    xhr.open("POST", url, true);
+    try {
+        xhr.open("POST", url, true);
+    } catch (e) {
+       triggerError();
+       return;
+    }
     xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
-*/
-    xhr.open("GET", url, true);
     xhr.responseType = "json";
     xhr.mozBackgroundRequest = true;
     xhr.channel.loadFlags = Ci.nsIChannel.LOAD_ANONYMOUS;
     xhr.onerror = function() {
         LOG("onerror: " + xhr);
+        triggerError();
     };
 
     xhr.onload = function() {  
         LOG("gls returned status: " + xhr.status + " --> " +  JSON.stringify(xhr.response));
-        if (xhr.status != 200) {
+        if (xhr.channel instanceof Ci.nsIHttpChannel && xhr.status != 200) {
+            triggerError();
             return;
         }
-/* Google
+
         if (!xhr.response || !xhr.response.location) {
+            triggerError();
             return;
         }
 
         let newLocation = new WifiGeoPositionObject(xhr.response.location.lat,
                                                     xhr.response.location.lng,
                                                     xhr.response.accuracy);
-*/
-
-//IP-API
-        if (!xhr.response || !xhr.response.status || xhr.response.status == 'fail') {
-            return;
-        }
-
-        let newLocation = new WifiGeoPositionObject(xhr.response.lat,
-                                                    xhr.response.lon,
-                                                    null, //accuracy not provided
-                                                    xhr.response.countryCode,
-                                                    xhr.response.timezone,
-                                                    xhr.response.zip,
-                                                    xhr.response.city,
-                                                    xhr.response.region,
-                                                    xhr.response.regionName,
-                                                    xhr.response.country,
-                                                    xhr.response.isp,
-                                                    xhr.response.org,
-                                                    xhr.response.as);
         
         Cc["@mozilla.org/geolocation/service;1"].getService(Ci.nsIGeolocationUpdate)
             .update(newLocation);
@@ -255,4 +234,8 @@ WifiGeoPositionProvider.prototype = {
   },
 };
 
+function triggerError() {
+    Cc["@mozilla.org/geolocation/service;1"].getService(Ci.nsIGeolocationUpdate)
+        .notifyError(Ci.nsIDOMGeoPositionError.POSITION_UNAVAILABLE);
+}
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([WifiGeoPositionProvider]);

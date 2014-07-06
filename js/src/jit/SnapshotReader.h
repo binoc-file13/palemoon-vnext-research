@@ -7,10 +7,10 @@
 #ifndef jit_SnapshotReader_h
 #define jit_SnapshotReader_h
 
-#include "IonTypes.h"
-#include "IonCode.h"
-#include "Registers.h"
-#include "CompactBuffer.h"
+#include "jit/CompactBuffer.h"
+#include "jit/IonCode.h"
+#include "jit/IonTypes.h"
+#include "jit/Registers.h"
 
 namespace js {
 namespace jit {
@@ -50,13 +50,13 @@ class SnapshotReader
     void readSnapshotHeader();
     void readFrameHeader();
 
-    template <typename T> inline T readVariableLength();
-
   public:
     enum SlotMode
     {
         CONSTANT,           // An index into the constant pool.
         DOUBLE_REG,         // Type is double, payload is in a register.
+        FLOAT32_REG,        // Type is float32, payload is in a register.
+        FLOAT32_STACK,      // Type is float32, payload is on the stack.
         TYPED_REG,          // Type is constant, payload is in a register.
         TYPED_STACK,        // Type is constant, payload is on the stack.
         UNTYPED,            // Type is not known.
@@ -69,16 +69,20 @@ class SnapshotReader
     {
         friend class SnapshotReader;
 
+        // An offset that is illegal for a local variable's stack allocation.
+        static const int32_t InvalidStackSlot = -1;
+
         Register::Code reg_;
         int32_t stackSlot_;
 
         static Location From(const Register &reg) {
             Location loc;
             loc.reg_ = reg.code();
-            loc.stackSlot_ = INVALID_STACK_SLOT;
+            loc.stackSlot_ = InvalidStackSlot;
             return loc;
         }
         static Location From(int32_t stackSlot) {
+            JS_ASSERT(stackSlot != InvalidStackSlot);
             Location loc;
             loc.reg_ = Register::Code(0);      // Quell compiler warnings.
             loc.stackSlot_ = stackSlot;
@@ -95,7 +99,7 @@ class SnapshotReader
             return stackSlot_;
         }
         bool isStackSlot() const {
-            return stackSlot_ != INVALID_STACK_SLOT;
+            return stackSlot_ != InvalidStackSlot;
         }
     };
 
@@ -135,6 +139,18 @@ class SnapshotReader
         {
             fpu_ = reg.code();
         }
+        Slot(SlotMode mode, const FloatRegister &reg)
+          : mode_(mode)
+        {
+            JS_ASSERT(mode == FLOAT32_REG);
+            fpu_ = reg.code();
+        }
+        Slot(SlotMode mode, const Location &loc)
+          : mode_(mode)
+        {
+            JS_ASSERT(mode == FLOAT32_STACK);
+            known_type_.payload = loc;
+        }
         Slot(SlotMode mode)
           : mode_(mode)
         { }
@@ -166,11 +182,11 @@ class SnapshotReader
             return known_type_.payload.reg();
         }
         FloatRegister floatReg() const {
-            JS_ASSERT(mode() == DOUBLE_REG);
+            JS_ASSERT(mode() == DOUBLE_REG || mode() == FLOAT32_REG);
             return FloatRegister::FromCode(fpu_);
         }
         int32_t stackSlot() const {
-            JS_ASSERT(mode() == TYPED_STACK);
+            JS_ASSERT(mode() == TYPED_STACK || mode() == FLOAT32_STACK);
             return known_type_.payload.stackSlot();
         }
 #if defined(JS_NUNBOX32)

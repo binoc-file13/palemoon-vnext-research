@@ -7,8 +7,9 @@
 #define MOZILLA_IMAGELIB_IMGDECODEROBSERVER_H_
 
 #include "nsRect.h"
-#include "mozilla/RefPtr.h"
 #include "mozilla/WeakPtr.h"
+
+struct nsIntRect;
 
 /**
  * imgDecoderObserver interface
@@ -32,10 +33,10 @@
  * loaded data fire before the call returns. If FLAG_SYNC_DECODE is not passed,
  * all, some, or none of the notifications may fire before the call returns.
  */
-class imgDecoderObserver
+class imgDecoderObserver : public mozilla::RefCounted<imgDecoderObserver>
 {
 public:
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(imgDecoderObserver);
+  virtual ~imgDecoderObserver() = 0;
 
   /**
    * Load notification.
@@ -124,9 +125,6 @@ public:
    * Called when an image is realized to be in error state.
    */
   virtual void OnError() = 0;
-
-protected:
-  virtual ~imgDecoderObserver() = 0;
 };
 
 // We must define a destructor because derived classes call our destructor from

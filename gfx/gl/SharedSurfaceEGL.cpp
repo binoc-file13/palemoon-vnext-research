@@ -4,11 +4,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "SharedSurfaceEGL.h"
-
-#include "GLContext.h"
+#include "GLContextEGL.h"
+#include "GLBlitHelper.h"
+#include "ScopedGLHelpers.h"
 #include "SharedSurfaceGL.h"
 #include "SurfaceFactory.h"
 #include "GLLibraryEGL.h"
+#include "TextureGarbageBin.h"
+#include "GLReadTexImageHelper.h"
 
 using namespace mozilla::gfx;
 
@@ -18,18 +21,18 @@ namespace gl {
 SharedSurface_EGLImage*
 SharedSurface_EGLImage::Create(GLContext* prodGL,
                                const GLFormats& formats,
-                               const gfxIntSize& size,
+                               const gfx::IntSize& size,
                                bool hasAlpha,
                                EGLContext context)
 {
-    GLLibraryEGL* egl = prodGL->GetLibraryEGL();
+    GLLibraryEGL* egl = &sEGLLibrary;
     MOZ_ASSERT(egl);
 
     if (!HasExtensions(egl, prodGL))
         return nullptr;
 
     MOZ_ALWAYS_TRUE(prodGL->MakeCurrent());
-    GLuint prodTex = prodGL->CreateTextureForOffscreen(formats, size);
+    GLuint prodTex = CreateTextureForOffscreen(prodGL, formats, size);
     if (!prodTex)
         return nullptr;
 
@@ -46,6 +49,31 @@ SharedSurface_EGLImage::HasExtensions(GLLibraryEGL* egl, GLContext* gl)
            egl->IsExtensionSupported(GLLibraryEGL::KHR_gl_texture_2D_image) &&
            gl->IsExtensionSupported(GLContext::OES_EGL_image);
 }
+
+SharedSurface_EGLImage::SharedSurface_EGLImage(GLContext* gl,
+                                               GLLibraryEGL* egl,
+                                               const gfx::IntSize& size,
+                                               bool hasAlpha,
+                                               const GLFormats& formats,
+                                               GLuint prodTex)
+    : SharedSurface_GL(SharedSurfaceType::EGLImageShare,
+                        AttachmentType::GLTexture,
+                        gl,
+                        size,
+                        hasAlpha)
+    , mMutex("SharedSurface_EGLImage mutex")
+    , mEGL(egl)
+    , mFormats(formats)
+    , mProdTex(prodTex)
+    , mProdTexForPipe(0)
+    , mImage(0)
+    , mCurConsGL(nullptr)
+    , mConsTex(0)
+    , mSync(0)
+    , mPipeFailed(false)
+    , mPipeComplete(false)
+    , mPipeActive(false)
+{}
 
 SharedSurface_EGLImage::~SharedSurface_EGLImage()
 {
@@ -86,7 +114,7 @@ SharedSurface_EGLImage::LockProdImpl()
     if (mPipeActive)
         return;
 
-    mGL->BlitTextureToTexture(mProdTex, mProdTexForPipe, Size(), Size());
+    mGL->BlitHelper()->BlitTextureToTexture(mProdTex, mProdTexForPipe, Size(), Size());
     mGL->fDeleteTextures(1, &mProdTex);
     mProdTex = mProdTexForPipe;
     mProdTexForPipe = 0;
@@ -95,18 +123,18 @@ SharedSurface_EGLImage::LockProdImpl()
 
 static bool
 CreateTexturePipe(GLLibraryEGL* const egl, GLContext* const gl,
-                  const GLFormats& formats, const gfxIntSize& size,
+                  const GLFormats& formats, const gfx::IntSize& size,
                   GLuint* const out_tex, EGLImage* const out_image)
 {
     MOZ_ASSERT(out_tex && out_image);
     *out_tex = 0;
     *out_image = 0;
 
-    GLuint tex = gl->CreateTextureForOffscreen(formats, size);
+    GLuint tex = CreateTextureForOffscreen(gl, formats, size);
     if (!tex)
         return false;
 
-    EGLContext context = gl->GetEGLContext();
+    EGLContext context = GLContextEGL::Cast(gl)->GetEGLContext();
     MOZ_ASSERT(context);
     EGLClientBuffer buffer = reinterpret_cast<EGLClientBuffer>(tex);
     EGLImage image = egl->fCreateImage(egl->Display(), context,
@@ -142,15 +170,22 @@ SharedSurface_EGLImage::Fence()
         }
 
         if (!mPixels) {
-            gfxASurface::gfxImageFormat format =
-                  HasAlpha() ? gfxASurface::ImageFormatARGB32
-                             : gfxASurface::ImageFormatRGB24;
-            mPixels = new gfxImageSurface(Size(), format);
+            SurfaceFormat format =
+                  HasAlpha() ? SurfaceFormat::B8G8R8A8
+                             : SurfaceFormat::B8G8R8X8;
+            mPixels = Factory::CreateDataSourceSurface(Size(), format);
         }
 
-        mPixels->Flush();
-        mGL->ReadScreenIntoImageSurface(mPixels);
-        mPixels->MarkDirty();
+        DataSourceSurface::MappedSurface map;
+        mPixels->Map(DataSourceSurface::MapType::WRITE, &map);
+
+        nsRefPtr<gfxImageSurface> wrappedData =
+            new gfxImageSurface(map.mData,
+                                ThebesIntSize(mPixels->GetSize()),
+                                map.mStride,
+                                SurfaceFormatToImageFormat(mPixels->GetFormat()));
+        ReadScreenIntoImageSurface(mGL, wrappedData);
+        mPixels->Unmap();
         return;
     }
     MOZ_ASSERT(mPipeActive);
@@ -242,7 +277,7 @@ SharedSurface_EGLImage::AcquireConsumerTexture(GLContext* consGL)
     return 0;
 }
 
-gfxImageSurface*
+DataSourceSurface*
 SharedSurface_EGLImage::GetPixels() const
 {
     MutexAutoLock lock(mMutex);
@@ -255,7 +290,7 @@ SurfaceFactory_EGLImage*
 SurfaceFactory_EGLImage::Create(GLContext* prodGL,
                                         const SurfaceCaps& caps)
 {
-    EGLContext context = prodGL->GetEGLContext();
+    EGLContext context = GLContextEGL::Cast(prodGL)->GetEGLContext();
 
     return new SurfaceFactory_EGLImage(prodGL, context, caps);
 }

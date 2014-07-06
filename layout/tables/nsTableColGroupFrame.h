@@ -136,7 +136,7 @@ public:
                           bool                      aResetSubsequentColIndices,
                           const nsFrameList::Slice& aCols);
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const MOZ_OVERRIDE;
   void Dump(int32_t aIndent);
 #endif
@@ -212,7 +212,7 @@ protected:
   void InsertColsReflow(int32_t                   aColIndex,
                         const nsFrameList::Slice& aCols);
 
-  virtual int GetSkipSides() const MOZ_OVERRIDE;
+  virtual int GetSkipSides(const nsHTMLReflowState* aReflowState = nullptr) const MOZ_OVERRIDE;
 
   // data members
   int32_t mColCount;

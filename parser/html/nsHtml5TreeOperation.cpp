@@ -42,7 +42,7 @@
 #include "mozilla/Likely.h"
 #include "nsTextNode.h"
 
-namespace dom = mozilla::dom;
+using namespace mozilla;
 
 static NS_DEFINE_CID(kFormProcessorCID, NS_FORMPROCESSOR_CID);
 
@@ -117,7 +117,7 @@ nsHtml5TreeOperation::~nsHtml5TreeOperation()
 }
 
 nsresult
-nsHtml5TreeOperation::AppendTextToTextNode(const PRUnichar* aBuffer,
+nsHtml5TreeOperation::AppendTextToTextNode(const char16_t* aBuffer,
                                            uint32_t aLength,
                                            nsIContent* aTextNode,
                                            nsHtml5TreeOpExecutor* aBuilder)
@@ -149,7 +149,7 @@ nsHtml5TreeOperation::AppendTextToTextNode(const PRUnichar* aBuffer,
 
 
 nsresult
-nsHtml5TreeOperation::AppendText(const PRUnichar* aBuffer,
+nsHtml5TreeOperation::AppendText(const char16_t* aBuffer,
                                  uint32_t aLength,
                                  nsIContent* aParent,
                                  nsHtml5TreeOpExecutor* aBuilder)
@@ -226,6 +226,24 @@ nsHtml5TreeOperation::AppendToDocument(nsIContent* aNode,
   return rv;
 }
 
+static bool
+IsElementOrTemplateContent(nsINode* aNode) {
+  if (aNode) {
+    if (aNode->IsElement()) {
+      return true;
+    } else if (aNode->NodeType() == nsIDOMNode::DOCUMENT_FRAGMENT_NODE) {
+      // Check if the node is a template content.
+      mozilla::dom::DocumentFragment* frag =
+        static_cast<mozilla::dom::DocumentFragment*>(aNode);
+      nsIContent* fragHost = frag->GetHost();
+      if (fragHost && nsNodeUtils::IsTemplateElement(fragHost)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 nsresult
 nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
                               nsIContent** aScriptElement)
@@ -279,7 +297,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
       nsIContent* table = *(mThree.node);
       nsIContent* foster = table->GetParent();
 
-      if (foster && foster->IsElement()) {
+      if (IsElementOrTemplateContent(foster)) {
         aBuilder->FlushPendingAppendNotifications();
 
         nsHtml5OtherDocUpdate update(foster->OwnerDoc(),
@@ -339,7 +357,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
         name = nsHtml5Atoms::select;
       }
       
-      nsCOMPtr<nsIContent> newContent;
+      nsCOMPtr<dom::Element> newContent;
       nsCOMPtr<nsINodeInfo> nodeInfo = aBuilder->GetNodeInfoManager()->
         GetNodeInfo(name, nullptr, ns, nsIDOMNode::ELEMENT_NODE);
       NS_ASSERTION(nodeInfo, "Got null nodeinfo.");
@@ -364,8 +382,10 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
         // Adapted from CNavDTD
         nsCOMPtr<nsIFormProcessor> theFormProcessor =
           do_GetService(kFormProcessorCID, &rv);
-        NS_ENSURE_SUCCESS(rv, rv);
-        
+        if (NS_FAILED(rv)) {
+          return NS_OK;
+        }
+
         nsTArray<nsString> theContent;
         nsAutoString theAttribute;
          
@@ -386,7 +406,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
                                                       nsIDOMNode::ELEMENT_NODE);
                                                       
         for (uint32_t i = 0; i < theContent.Length(); ++i) {
-          nsCOMPtr<nsIContent> optionElt;
+          nsCOMPtr<dom::Element> optionElt;
           nsCOMPtr<nsINodeInfo> ni = optionNodeInfo;
           NS_NewElement(getter_AddRefs(optionElt), 
                         ni.forget(),
@@ -462,7 +482,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
     case eTreeOpAppendText: {
       nsIContent* parent = *mOne.node;
-      PRUnichar* buffer = mTwo.unicharPtr;
+      char16_t* buffer = mTwo.unicharPtr;
       uint32_t length = mFour.integer;
       return AppendText(buffer, length, parent, aBuilder);
     }
@@ -484,13 +504,12 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
     case eTreeOpFosterParentText: {
       nsIContent* stackParent = *mOne.node;
-      PRUnichar* buffer = mTwo.unicharPtr;
+      char16_t* buffer = mTwo.unicharPtr;
       uint32_t length = mFour.integer;
       nsIContent* table = *mThree.node;
-      
       nsIContent* foster = table->GetParent();
 
-      if (foster && foster->IsElement()) {
+      if (IsElementOrTemplateContent(foster)) {
         aBuilder->FlushPendingAppendNotifications();
 
         nsHtml5OtherDocUpdate update(foster->OwnerDoc(),
@@ -522,7 +541,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
     case eTreeOpAppendComment: {
       nsIContent* parent = *mOne.node;
-      PRUnichar* buffer = mTwo.unicharPtr;
+      char16_t* buffer = mTwo.unicharPtr;
       int32_t length = mFour.integer;
       
       nsRefPtr<dom::Comment> comment =
@@ -534,7 +553,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
       return Append(comment, parent, aBuilder);
     }
     case eTreeOpAppendCommentToDocument: {
-      PRUnichar* buffer = mTwo.unicharPtr;
+      char16_t* buffer = mTwo.unicharPtr;
       int32_t length = mFour.integer;
       
       nsRefPtr<dom::Comment> comment =
@@ -639,7 +658,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
       return rv;
     }
     case eTreeOpProcessOfflineManifest: {
-      PRUnichar* str = mOne.unicharPtr;
+      char16_t* str = mOne.unicharPtr;
       nsDependentString dependentString(str);
       aBuilder->ProcessOfflineManifest(dependentString);
       return rv;
@@ -697,7 +716,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
     case eTreeOpAddClass: {
       nsIContent* node = *(mOne.node);
-      PRUnichar* str = mTwo.unicharPtr;
+      char16_t* str = mTwo.unicharPtr;
       nsDependentString depStr(str);
       // See viewsource.css for the possible classes
       nsAutoString klass;
@@ -721,7 +740,7 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
     case eTreeOpAddViewSourceHref: {
       nsIContent* node = *mOne.node;
-      PRUnichar* buffer = mTwo.unicharPtr;
+      char16_t* buffer = mTwo.unicharPtr;
       int32_t length = mFour.integer;
 
       nsDependentString relative(buffer, length);
@@ -734,7 +753,9 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
                      relative,
                      charset.get(),
                      aBuilder->GetViewSourceBaseURI());
-      NS_ENSURE_SUCCESS(rv, rv);
+      if (NS_FAILED(rv)) {
+        return NS_OK;
+      }
 
       // Reuse the fix for bug 467852
       // URLs that execute script (e.g. "javascript:" URLs) should just be
@@ -794,13 +815,13 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
 
       nsXPIDLString message;
       if (otherAtom) {
-        const PRUnichar* params[] = { atom->GetUTF16String(),
+        const char16_t* params[] = { atom->GetUTF16String(),
                                       otherAtom->GetUTF16String() };
         rv = nsContentUtils::FormatLocalizedString(
           nsContentUtils::eHTMLPARSER_PROPERTIES, msgId, params, message);
         NS_ENSURE_SUCCESS(rv, rv);
       } else if (atom) {
-        const PRUnichar* params[] = { atom->GetUTF16String() };
+        const char16_t* params[] = { atom->GetUTF16String() };
         rv = nsContentUtils::FormatLocalizedString(
           nsContentUtils::eHTMLPARSER_PROPERTIES, msgId, params, message);
         NS_ENSURE_SUCCESS(rv, rv);

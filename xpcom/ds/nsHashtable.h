@@ -23,15 +23,13 @@
 
 #include "pldhash.h"
 #include "nscore.h"
-#include "nsString.h"
-#include "nsISupportsBase.h"
+#include "nsISupports.h"
 #include "nsTraceRefcnt.h"
+#include "nsStringFwd.h"
 
 class nsIObjectInputStream;
 class nsIObjectOutputStream;
 
-class nsHashtable;
-class nsStringKey;
 struct PRLock;
 
 class nsHashKey {
@@ -112,9 +110,9 @@ class nsHashtable {
     void *Get(nsHashKey *aKey);
     void *Remove(nsHashKey *aKey);
     nsHashtable *Clone();
-    void Enumerate(nsHashtableEnumFunc aEnumFunc, void* aClosure = NULL);
+    void Enumerate(nsHashtableEnumFunc aEnumFunc, void* aClosure = nullptr);
     void Reset();
-    void Reset(nsHashtableEnumFunc destroyFunc, void* aClosure = NULL);
+    void Reset(nsHashtableEnumFunc destroyFunc, void* aClosure = nullptr);
 
     nsHashtable(nsIObjectInputStream* aStream,
                 nsHashtableReadEntryFunc aReadEntryFunc,
@@ -157,8 +155,6 @@ class nsObjectHashtable : public nsHashtable {
 ////////////////////////////////////////////////////////////////////////////////
 // nsSupportsHashtable: an nsHashtable where the elements are nsISupports*
 
-class nsISupports;
-
 class nsSupportsHashtable
   : private nsHashtable
 {
@@ -179,7 +175,7 @@ class nsSupportsHashtable
     nsISupports* Get(nsHashKey *aKey);
     bool Remove(nsHashKey *aKey, nsISupports **value = nullptr);
     nsHashtable *Clone();
-    void Enumerate(nsHashtableEnumFunc aEnumFunc, void* aClosure = NULL) {
+    void Enumerate(nsHashtableEnumFunc aEnumFunc, void* aClosure = nullptr) {
         nsHashtable::Enumerate(aEnumFunc, aClosure);
     }
     void Reset();
@@ -193,8 +189,6 @@ class nsSupportsHashtable
 
 ////////////////////////////////////////////////////////////////////////////////
 // nsISupportsKey: Where keys are nsISupports objects that get refcounted.
-
-#include "nsISupports.h"
 
 class nsISupportsKey : public nsHashKey {
   protected:
@@ -301,8 +295,6 @@ class nsVoidKey : public nsHashKey {
     void* GetValue() { return mKey; }
 };
 
-#include "nsString.h"
-
 // for null-terminated c-strings
 class nsCStringKey : public nsHashKey {
   public:
@@ -349,7 +341,7 @@ class nsStringKey : public nsHashKey {
     };
 
     nsStringKey(const nsStringKey& aKey);
-    nsStringKey(const PRUnichar* str, int32_t strLen = -1, Ownership own = OWN_CLONE);
+    nsStringKey(const char16_t* str, int32_t strLen = -1, Ownership own = OWN_CLONE);
     nsStringKey(const nsAFlatString& str);
     nsStringKey(const nsAString& str);
     ~nsStringKey(void);
@@ -362,11 +354,11 @@ class nsStringKey : public nsHashKey {
 
     // For when the owner of the hashtable wants to peek at the actual
     // string in the key. No copy is made, so be careful.
-    const PRUnichar* GetString() const { return mStr; }
+    const char16_t* GetString() const { return mStr; }
     uint32_t GetStringLength() const { return mStrLen; }
 
   protected:
-    PRUnichar*  mStr;
+    char16_t*  mStr;
     uint32_t    mStrLen;
     Ownership   mOwnership;
 };

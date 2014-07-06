@@ -8,7 +8,9 @@ package org.mozilla.gecko.db;
 import org.mozilla.gecko.AppConstants;
 
 import android.net.Uri;
+import org.mozilla.gecko.mozglue.RobocopTarget;
 
+@RobocopTarget
 public class BrowserContract {
     public static final String AUTHORITY = AppConstants.ANDROID_PACKAGE_NAME + ".db.browser";
     public static final Uri AUTHORITY_URI = Uri.parse("content://" + AUTHORITY);
@@ -21,6 +23,9 @@ public class BrowserContract {
 
     public static final String TABS_AUTHORITY = AppConstants.ANDROID_PACKAGE_NAME + ".db.tabs";
     public static final Uri TABS_AUTHORITY_URI = Uri.parse("content://" + TABS_AUTHORITY);
+
+    public static final String HOME_AUTHORITY = AppConstants.ANDROID_PACKAGE_NAME + ".db.home";
+    public static final Uri HOME_AUTHORITY_URI = Uri.parse("content://" + HOME_AUTHORITY);
 
     public static final String PARAM_PROFILE = "profile";
     public static final String PARAM_PROFILE_PATH = "profilePath";
@@ -50,31 +55,37 @@ public class BrowserContract {
         return order.toString();
     }
 
+    @RobocopTarget
     public interface CommonColumns {
         public static final String _ID = "_id";
     }
 
+    @RobocopTarget
     public interface DateSyncColumns {
         public static final String DATE_CREATED = "created";
         public static final String DATE_MODIFIED = "modified";
     }
 
+    @RobocopTarget
     public interface SyncColumns extends DateSyncColumns {
         public static final String GUID = "guid";
         public static final String IS_DELETED = "deleted";
     }
 
+    @RobocopTarget
     public interface URLColumns {
         public static final String URL = "url";
         public static final String TITLE = "title";
     }
 
+    @RobocopTarget
     public interface FaviconColumns {
         public static final String FAVICON = "favicon";
         public static final String FAVICON_ID = "favicon_id";
         public static final String FAVICON_URL = "favicon_url";
     }
 
+    @RobocopTarget
     public interface HistoryColumns {
         public static final String DATE_LAST_VISITED = "date";
         public static final String VISITS = "visits";
@@ -86,6 +97,7 @@ public class BrowserContract {
         public static final String TIME_DELETED = "timeDeleted";
     }
 
+    @RobocopTarget
     public static final class Favicons implements CommonColumns, DateSyncColumns {
         private Favicons() {}
 
@@ -96,6 +108,7 @@ public class BrowserContract {
         public static final String PAGE_URL = "page_url";
     }
 
+    @RobocopTarget
     public static final class Thumbnails implements CommonColumns {
         private Thumbnails() {}
 
@@ -105,6 +118,7 @@ public class BrowserContract {
         public static final String DATA = "data";
     }
 
+    @RobocopTarget
     public static final class Bookmarks implements CommonColumns, URLColumns, FaviconColumns, SyncColumns {
         private Bookmarks() {}
 
@@ -145,6 +159,7 @@ public class BrowserContract {
         public static final String KEYWORD = "keyword";
     }
 
+    @RobocopTarget
     public static final class History implements CommonColumns, URLColumns, HistoryColumns, FaviconColumns, SyncColumns {
         private History() {}
         public static final Uri CONTENT_URI = Uri.withAppendedPath(AUTHORITY_URI, "history");
@@ -154,6 +169,7 @@ public class BrowserContract {
     }
 
     // Combined bookmarks and history
+    @RobocopTarget
     public static final class Combined implements CommonColumns, URLColumns, HistoryColumns, FaviconColumns  {
         private Combined() {}
         public static final Uri CONTENT_URI = Uri.withAppendedPath(AUTHORITY_URI, "combined");
@@ -171,18 +187,6 @@ public class BrowserContract {
         public static final Uri CONTENT_URI = Uri.withAppendedPath(AUTHORITY_URI, "schema");
 
         public static final String VERSION = "version";
-    }
-
-    public static final class Control {
-        private Control() {}
-
-        public static final Uri CONTENT_URI = Uri.withAppendedPath(AUTHORITY_URI, "control");
-
-        // These return 1 if done/finished, 0 if not.
-        // Check if history was completely migrated, do a bunch if it wasn't.
-        public static final String ENSURE_HISTORY_MIGRATED = "ensure_history_migrated";
-        // Check if bookmarks were completely migrated, migrate them if not.
-        public static final String ENSURE_BOOKMARKS_MIGRATED = "ensure_bookmarks_migrated";
     }
 
     public static final class Passwords {
@@ -282,5 +286,23 @@ public class BrowserContract {
         // Last modified time for the client's tab record. For remote records, a server
         // timestamp provided by Sync during insertion.
         public static final String LAST_MODIFIED = "last_modified";
+    }
+
+    // Data storage for dynamic panels on about:home
+    @RobocopTarget
+    public static final class HomeItems implements CommonColumns {
+        private HomeItems() {}
+        public static final Uri CONTENT_FAKE_URI = Uri.withAppendedPath(HOME_AUTHORITY_URI, "items/fake");
+        public static final Uri CONTENT_URI = Uri.withAppendedPath(HOME_AUTHORITY_URI, "items");
+
+        public static final String CONTENT_TYPE = "vnd.android.cursor.dir/homeitem";
+        public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/homeitem";
+
+        public static final String DATASET_ID = "dataset_id";
+        public static final String URL = "url";
+        public static final String TITLE = "title";
+        public static final String DESCRIPTION = "description";
+        public static final String IMAGE_URL = "image_url";
+        public static final String CREATED = "created";
     }
 }

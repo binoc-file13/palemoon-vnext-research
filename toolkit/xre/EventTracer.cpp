@@ -45,7 +45,8 @@
  * When an event servicing time exceeds the threshold, a line of the form:
  *   MOZ_EVENT_TRACE sample <timestamp> <duration>
  * will be output, where <duration> is the number of milliseconds that
- * it took for the event to be serviced.
+ * it took for the event to be serviced. Duration may contain a fractional
+ * component.
  */
 
 #include "GeckoProfiler.h"
@@ -56,6 +57,7 @@
 
 #include "mozilla/TimeStamp.h"
 #include "mozilla/WidgetTraceEvent.h"
+#include "nsDebug.h"
 #include <limits.h>
 #include <prenv.h>
 #include <prinrval.h>
@@ -68,7 +70,7 @@ using mozilla::FireAndWaitForTracerEvent;
 
 namespace {
 
-PRThread* sTracerThread = NULL;
+PRThread* sTracerThread = nullptr;
 bool sExit = false;
 
 struct TracerStartClosure {
@@ -99,12 +101,12 @@ void TracerThread(void *arg)
   PRIntervalTime interval = PR_MillisecondsToInterval(10);
 
   sExit = false;
-  FILE* log = NULL;
+  FILE* log = nullptr;
   char* envfile = PR_GetEnv("MOZ_INSTRUMENT_EVENT_LOOP_OUTPUT");
   if (envfile) {
     log = fopen(envfile, "w");
   }
-  if (log == NULL)
+  if (log == nullptr)
     log = stdout;
 
   char* thresholdenv = PR_GetEnv("MOZ_INSTRUMENT_EVENT_LOOP_THRESHOLD");
@@ -124,7 +126,8 @@ void TracerThread(void *arg)
   }
 
   if (threadArgs->mLogTracing) {
-    fprintf(log, "MOZ_EVENT_TRACE start %llu\n", PR_Now() / PR_USEC_PER_MSEC);
+    long long now = PR_Now() / PR_USEC_PER_MSEC;
+    fprintf(log, "MOZ_EVENT_TRACE start %llu\n", now);
   }
 
   while (!sExit) {
@@ -138,10 +141,11 @@ void TracerThread(void *arg)
     if (FireAndWaitForTracerEvent()) {
       TimeDuration duration = TimeStamp::Now() - start;
       // Only report samples that exceed our measurement threshold.
+      long long now = PR_Now() / PR_USEC_PER_MSEC;
       if (threadArgs->mLogTracing && duration.ToMilliseconds() > threshold) {
-        fprintf(log, "MOZ_EVENT_TRACE sample %llu %d\n",
-                PR_Now() / PR_USEC_PER_MSEC,
-                int(duration.ToSecondsSigDigits() * 1000));
+        fprintf(log, "MOZ_EVENT_TRACE sample %llu %lf\n",
+                now,
+                duration.ToMilliseconds());
       }
 
       if (next_sleep > duration.ToMilliseconds()) {
@@ -160,7 +164,8 @@ void TracerThread(void *arg)
   }
 
   if (threadArgs->mLogTracing) {
-    fprintf(log, "MOZ_EVENT_TRACE stop %llu\n", PR_Now() / PR_USEC_PER_MSEC);
+    long long now = PR_Now() / PR_USEC_PER_MSEC;
+    fprintf(log, "MOZ_EVENT_TRACE stop %llu\n", now);
   }
 
   if (log != stdout)
@@ -196,7 +201,7 @@ bool InitEventTracing(bool aLog)
                                   PR_GLOBAL_THREAD,
                                   PR_JOINABLE_THREAD,
                                   0);
-  return sTracerThread != NULL;
+  return sTracerThread != nullptr;
 }
 
 void ShutdownEventTracing()
@@ -210,7 +215,7 @@ void ShutdownEventTracing()
 
   if (sTracerThread)
     PR_JoinThread(sTracerThread);
-  sTracerThread = NULL;
+  sTracerThread = nullptr;
 
   // Allow the widget backend to clean up.
   CleanUpWidgetTracing();

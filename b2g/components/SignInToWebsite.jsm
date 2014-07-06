@@ -76,7 +76,9 @@ const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/identity/IdentityUtils.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "getRandomId",
+                                  "resource://gre/modules/identity/IdentityUtils.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "IdentityService",
                                   "resource://gre/modules/identity/MinimalIdentity.jsm");
@@ -285,7 +287,7 @@ Pipe.prototype = {
             let frameLoader = frame.QueryInterface(Ci.nsIFrameLoaderOwner).frameLoader;
             mm = frameLoader.messageManager;
             try {
-              mm.loadFrameScript(kIdentityShimFile, true);
+              mm.loadFrameScript(kIdentityShimFile, true, true);
               log("Loaded shim", kIdentityShimFile);
             } catch (e) {
               log("Error loading", kIdentityShimFile, "as a frame script:", e);

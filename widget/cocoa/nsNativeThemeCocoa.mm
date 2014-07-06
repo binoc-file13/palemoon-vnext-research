@@ -5,6 +5,7 @@
 
 #include "nsNativeThemeCocoa.h"
 #include "nsObjCExceptions.h"
+#include "nsNumberControlFrame.h"
 #include "nsRangeFrame.h"
 #include "nsRenderingContext.h"
 #include "nsRect.h"
@@ -24,14 +25,17 @@
 #include "nsCocoaWindow.h"
 #include "nsNativeThemeColors.h"
 #include "nsIScrollableFrame.h"
-#include "nsIDOMHTMLMeterElement.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/HTMLMeterElement.h"
 #include "nsLookAndFeel.h"
 
 #include "gfxContext.h"
 #include "gfxQuartzSurface.h"
 #include "gfxQuartzNativeDrawing.h"
 #include <algorithm>
+
+using namespace mozilla::gfx;
+using mozilla::dom::HTMLMeterElement;
 
 #define DRAW_IN_FRAME_DEBUG 0
 #define SCROLLBARS_VISUAL_DEBUG 0
@@ -356,6 +360,33 @@ static NSWindow* NativeWindowForFrame(nsIFrame* aFrame,
     *aTopLevelWidget = topLevelWidget;
 
   return (NSWindow*)topLevelWidget->GetNativeData(NS_NATIVE_WINDOW);
+}
+
+static NSSize
+WindowButtonsSize(nsIFrame* aFrame)
+{
+  NSWindow* window = NativeWindowForFrame(aFrame);
+  if (!window) {
+    // Return fallback values.
+    if (!nsCocoaFeatures::OnLionOrLater())
+      return NSMakeSize(57, 16);
+    return NSMakeSize(54, 16);
+  }
+
+  NSRect buttonBox = NSZeroRect;
+  NSButton* closeButton = [window standardWindowButton:NSWindowCloseButton];
+  if (closeButton) {
+    buttonBox = NSUnionRect(buttonBox, [closeButton frame]);
+  }
+  NSButton* minimizeButton = [window standardWindowButton:NSWindowMiniaturizeButton];
+  if (minimizeButton) {
+    buttonBox = NSUnionRect(buttonBox, [minimizeButton frame]);
+  }
+  NSButton* zoomButton = [window standardWindowButton:NSWindowZoomButton];
+  if (zoomButton) {
+    buttonBox = NSUnionRect(buttonBox, [zoomButton frame]);
+  }
+  return buttonBox.size;
 }
 
 static BOOL FrameIsInActiveWindow(nsIFrame* aFrame)
@@ -1180,6 +1211,26 @@ nsNativeThemeCocoa::DrawDropdown(CGContextRef cgContext, const HIRect& inBoxRect
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
 
+static const CellRenderSettings spinnerSettings = {
+  {
+    NSMakeSize(11, 16), // mini (width trimmed by 2px to reduce blank border)
+    NSMakeSize(15, 22), // small
+    NSMakeSize(19, 27)  // regular
+  },
+  {
+    NSMakeSize(11, 16), // mini (width trimmed by 2px to reduce blank border)
+    NSMakeSize(15, 22), // small
+    NSMakeSize(19, 27)  // regular
+  },
+  {
+    { // Leopard
+      {0, 0, 0, 0},    // mini
+      {0, 0, 0, 0},    // small
+      {0, 0, 0, 0}     // regular
+    }
+  }
+};
+
 void
 nsNativeThemeCocoa::DrawSpinButtons(CGContextRef cgContext, ThemeButtonKind inKind,
                                     const HIRect& inBoxRect, ThemeDrawState inDrawState,
@@ -1200,6 +1251,56 @@ nsNativeThemeCocoa::DrawSpinButtons(CGContextRef cgContext, ThemeButtonKind inKi
     bdi.state = FrameIsInActiveWindow(aFrame) ? inDrawState : kThemeStateActive;
 
   HIThemeDrawButton(&inBoxRect, &bdi, cgContext, HITHEME_ORIENTATION, NULL);
+
+  NS_OBJC_END_TRY_ABORT_BLOCK;
+}
+
+void
+nsNativeThemeCocoa::DrawSpinButton(CGContextRef cgContext,
+                                   ThemeButtonKind inKind,
+                                   const HIRect& inBoxRect,
+                                   ThemeDrawState inDrawState,
+                                   ThemeButtonAdornment inAdornment,
+                                   nsEventStates inState,
+                                   nsIFrame* aFrame,
+                                   uint8_t aWidgetType)
+{
+  NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
+
+  MOZ_ASSERT(aWidgetType == NS_THEME_SPINNER_UP_BUTTON ||
+             aWidgetType == NS_THEME_SPINNER_DOWN_BUTTON);
+
+  HIThemeButtonDrawInfo bdi;
+  bdi.version = 0;
+  bdi.kind = inKind;
+  bdi.value = kThemeButtonOff;
+  bdi.adornment = inAdornment;
+
+  if (IsDisabled(aFrame, inState))
+    bdi.state = kThemeStateUnavailable;
+  else
+    bdi.state = FrameIsInActiveWindow(aFrame) ? inDrawState : kThemeStateActive;
+
+  // Cocoa only allows kThemeIncDecButton to paint the up and down spin buttons
+  // together as a single unit (presumably because when one button is active,
+  // the appearance of both changes (in different ways)). Here we have to paint
+  // both buttons, using clip to hide the one we don't want to paint.
+  HIRect drawRect = inBoxRect;
+  drawRect.size.height *= 2;
+  if (aWidgetType == NS_THEME_SPINNER_DOWN_BUTTON) {
+    drawRect.origin.y -= inBoxRect.size.height;
+  }
+
+  // Shift the drawing a little to the left, since cocoa paints with more
+  // blank space around the visual buttons than we'd like:
+  drawRect.origin.x -= 1;
+
+  CGContextSaveGState(cgContext);
+  CGContextClipToRect(cgContext, inBoxRect);
+
+  HIThemeDrawButton(&drawRect, &bdi, cgContext, HITHEME_ORIENTATION, NULL);
+
+  CGContextRestoreGState(cgContext);
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
@@ -1388,33 +1489,20 @@ nsNativeThemeCocoa::DrawMeter(CGContextRef cgContext, const HIRect& inBoxRect,
 
   NS_PRECONDITION(aFrame, "aFrame should not be null here!");
 
-  nsCOMPtr<nsIDOMHTMLMeterElement> meterElement =
-    do_QueryInterface(aFrame->GetContent());
-
   // When using -moz-meterbar on an non meter element, we will not be able to
   // get all the needed information so we just draw an empty meter.
-  if (!meterElement) {
+  nsIContent* content = aFrame->GetContent();
+  if (!(content && content->IsHTML(nsGkAtoms::meter))) {
     DrawCellWithSnapping(mMeterBarCell, cgContext, inBoxRect,
                          meterSetting, VerticalAlignFactor(aFrame),
                          mCellDrawView, IsFrameRTL(aFrame));
     return;
   }
 
-  double value;
-  double min;
-  double max;
-  double low;
-  double high;
-  double optimum;
-
-  // NOTE: if we were allowed to static_cast to HTMLMeterElement we would be
-  // able to use nicer getters...
-  meterElement->GetValue(&value);
-  meterElement->GetMin(&min);
-  meterElement->GetMax(&max);
-  meterElement->GetLow(&low);
-  meterElement->GetHigh(&high);
-  meterElement->GetOptimum(&optimum);
+  HTMLMeterElement* meterElement = static_cast<HTMLMeterElement*>(content);
+  double value = meterElement->Value();
+  double min = meterElement->Min();
+  double max = meterElement->Max();
 
   NSLevelIndicatorCell* cell = mMeterBarCell;
 
@@ -2038,7 +2126,15 @@ nsNativeThemeCocoa::DrawWidgetBackground(nsRenderingContext* aContext,
       break;
 
     case NS_THEME_MENUITEM: {
-      if (thebesCtx->OriginalSurface()->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA) {
+      bool isTransparent;
+      if (thebesCtx->IsCairo()) {
+        isTransparent = thebesCtx->OriginalSurface()->GetContentType() == gfxContentType::COLOR_ALPHA;
+      } else {
+        SurfaceFormat format  = thebesCtx->GetDrawTarget()->GetFormat();
+        isTransparent = (format == SurfaceFormat::R8G8B8A8) ||
+                        (format == SurfaceFormat::B8G8R8A8);
+      }
+      if (isTransparent) {
         // Clear the background to get correct transparency.
         CGContextClearRect(cgContext, macRect);
       }
@@ -2110,8 +2206,14 @@ nsNativeThemeCocoa::DrawWidgetBackground(nsRenderingContext* aContext,
       break;
 
     case NS_THEME_SPINNER: {
-      ThemeDrawState state = kThemeStateActive;
       nsIContent* content = aFrame->GetContent();
+      if (content->IsHTML()) {
+        // In HTML the theming for the spin buttons is drawn individually into
+        // their own backgrounds instead of being drawn into the background of
+        // their spinner parent as it is for XUL.
+        break;
+      }
+      ThemeDrawState state = kThemeStateActive;
       if (content->AttrValueIs(kNameSpaceID_None, nsGkAtoms::state,
                                NS_LITERAL_STRING("up"), eCaseMatters)) {
         state = kThemeStatePressedUp;
@@ -2123,6 +2225,23 @@ nsNativeThemeCocoa::DrawWidgetBackground(nsRenderingContext* aContext,
 
       DrawSpinButtons(cgContext, kThemeIncDecButton, macRect, state,
                       kThemeAdornmentNone, eventState, aFrame);
+    }
+      break;
+
+    case NS_THEME_SPINNER_UP_BUTTON:
+    case NS_THEME_SPINNER_DOWN_BUTTON: {
+      nsNumberControlFrame* numberControlFrame =
+        nsNumberControlFrame::GetNumberControlFrameForSpinButton(aFrame);
+      if (numberControlFrame) {
+        ThemeDrawState state = kThemeStateActive;
+        if (numberControlFrame->SpinnerUpButtonIsDepressed()) {
+          state = kThemeStatePressedUp;
+        } else if (numberControlFrame->SpinnerDownButtonIsDepressed()) {
+          state = kThemeStatePressedDown;
+        }
+        DrawSpinButton(cgContext, kThemeIncDecButtonMini, macRect, state,
+                       kThemeAdornmentNone, eventState, aFrame, aWidgetType);
+      }
     }
       break;
 
@@ -2165,7 +2284,8 @@ nsNativeThemeCocoa::DrawWidgetBackground(nsRenderingContext* aContext,
     case NS_THEME_WINDOW_TITLEBAR: {
       NSWindow* win = NativeWindowForFrame(aFrame);
       BOOL isMain = [win isMainWindow];
-      float unifiedToolbarHeight = [(ToolbarWindow*)win unifiedToolbarHeight];
+      float unifiedToolbarHeight = [win isKindOfClass:[ToolbarWindow class]] ?
+        [(ToolbarWindow*)win unifiedToolbarHeight] : macRect.size.height;
       DrawNativeTitlebar(cgContext, macRect, unifiedToolbarHeight, isMain);
     }
       break;
@@ -2197,6 +2317,7 @@ nsNativeThemeCocoa::DrawWidgetBackground(nsRenderingContext* aContext,
     }
 
     case NS_THEME_TEXTFIELD:
+    case NS_THEME_NUMBER_INPUT:
       // HIThemeSetFill is not available on 10.3
       CGContextSetRGBFillColor(cgContext, 1.0, 1.0, 1.0, 1.0);
       CGContextFillRect(cgContext, macRect);
@@ -2542,6 +2663,7 @@ nsNativeThemeCocoa::GetWidgetBorder(nsDeviceContext* aContext,
       *aResult = RTLAwareMargin(kAquaComboboxBorder, aFrame);
       break;
 
+    case NS_THEME_NUMBER_INPUT:
     case NS_THEME_TEXTFIELD:
     {
       SInt32 frameOutset = 0;
@@ -2655,6 +2777,7 @@ nsNativeThemeCocoa::GetWidgetOverflow(nsDeviceContext* aContext, nsIFrame* aFram
   switch (aWidgetType) {
     case NS_THEME_BUTTON:
     case NS_THEME_TOOLBAR_BUTTON:
+    case NS_THEME_NUMBER_INPUT:
     case NS_THEME_TEXTFIELD:
     case NS_THEME_TEXTFIELD_MULTILINE:
     case NS_THEME_SEARCHFIELD:
@@ -2721,12 +2844,25 @@ nsNativeThemeCocoa::GetMinimumWidgetSize(nsRenderingContext* aContext,
     }
 
     case NS_THEME_SPINNER:
+    case NS_THEME_SPINNER_UP_BUTTON:
+    case NS_THEME_SPINNER_DOWN_BUTTON:
     {
       SInt32 buttonHeight = 0, buttonWidth = 0;
-      ::GetThemeMetric(kThemeMetricLittleArrowsWidth, &buttonWidth);
-      ::GetThemeMetric(kThemeMetricLittleArrowsHeight, &buttonHeight);
+      if (aFrame->GetContent()->IsXUL()) {
+        ::GetThemeMetric(kThemeMetricLittleArrowsWidth, &buttonWidth);
+        ::GetThemeMetric(kThemeMetricLittleArrowsHeight, &buttonHeight);
+      } else {
+        NSSize size =
+          spinnerSettings.minimumSizes[EnumSizeForCocoaSize(NSMiniControlSize)];
+        buttonWidth = size.width;
+        buttonHeight = size.height;
+        if (aWidgetType != NS_THEME_SPINNER) {
+          // the buttons are half the height of the spinner
+          buttonHeight /= 2;
+        }
+      }
       aResult->SizeTo(buttonWidth, buttonHeight);
-      *aIsOverridable = false;
+      *aIsOverridable = true;
       break;
     }
 
@@ -2738,7 +2874,8 @@ nsNativeThemeCocoa::GetMinimumWidgetSize(nsRenderingContext* aContext,
       aResult->SizeTo(0, popupHeight);
       break;
     }
- 
+
+    case NS_THEME_NUMBER_INPUT:
     case NS_THEME_TEXTFIELD:
     case NS_THEME_TEXTFIELD_MULTILINE:
     case NS_THEME_SEARCHFIELD:
@@ -2749,7 +2886,24 @@ nsNativeThemeCocoa::GetMinimumWidgetSize(nsRenderingContext* aContext,
       aResult->SizeTo(0, (2 + 2) /* top */ + 9 + (1 + 1) /* bottom */);
       break;
     }
-      
+
+    case NS_THEME_WINDOW_BUTTON_BOX: {
+      NSSize size = WindowButtonsSize(aFrame);
+      aResult->SizeTo(size.width, size.height);
+      *aIsOverridable = false;
+      break;
+    }
+
+    case NS_THEME_MOZ_MAC_FULLSCREEN_BUTTON: {
+      if ([NativeWindowForFrame(aFrame) respondsToSelector:@selector(toggleFullScreen:)]) {
+        // This value is hardcoded because it's needed before we can measure the
+        // position and size of the fullscreen button.
+        aResult->SizeTo(16, 17);
+      }
+      *aIsOverridable = false;
+      break;
+    }
+
     case NS_THEME_PROGRESSBAR:
     {
       SInt32 barHeight = 0;
@@ -2962,6 +3116,7 @@ nsNativeThemeCocoa::WidgetStateChanged(nsIFrame* aFrame, uint8_t aWidgetType,
 {
   // Some widget types just never change state.
   switch (aWidgetType) {
+    case NS_THEME_WINDOW_TITLEBAR:
     case NS_THEME_TOOLBOX:
     case NS_THEME_TOOLBAR:
     case NS_THEME_MOZ_MAC_UNIFIED_TOOLBAR:
@@ -3039,10 +3194,12 @@ nsNativeThemeCocoa::ThemeSupportsWidget(nsPresContext* aPresContext, nsIFrame* a
 
     case NS_THEME_DIALOG:
     case NS_THEME_WINDOW:
+    case NS_THEME_WINDOW_BUTTON_BOX:
     case NS_THEME_WINDOW_TITLEBAR:
     case NS_THEME_MENUPOPUP:
     case NS_THEME_MENUITEM:
     case NS_THEME_MENUSEPARATOR:
+    case NS_THEME_MOZ_MAC_FULLSCREEN_BUTTON:
     case NS_THEME_TOOLTIP:
     
     case NS_THEME_CHECKBOX:
@@ -3054,9 +3211,12 @@ nsNativeThemeCocoa::ThemeSupportsWidget(nsPresContext* aPresContext, nsIFrame* a
     case NS_THEME_BUTTON_BEVEL:
     case NS_THEME_TOOLBAR_BUTTON:
     case NS_THEME_SPINNER:
+    case NS_THEME_SPINNER_UP_BUTTON:
+    case NS_THEME_SPINNER_DOWN_BUTTON:
     case NS_THEME_TOOLBAR:
     case NS_THEME_MOZ_MAC_UNIFIED_TOOLBAR:
     case NS_THEME_STATUSBAR:
+    case NS_THEME_NUMBER_INPUT:
     case NS_THEME_TEXTFIELD:
     case NS_THEME_TEXTFIELD_MULTILINE:
     case NS_THEME_SEARCHFIELD:
@@ -3166,6 +3326,35 @@ nsNativeThemeCocoa::ThemeNeedsComboboxDropmarker()
   return false;
 }
 
+bool
+nsNativeThemeCocoa::WidgetAppearanceDependsOnWindowFocus(uint8_t aWidgetType)
+{
+  switch (aWidgetType) {
+    case NS_THEME_DIALOG:
+    case NS_THEME_GROUPBOX:
+    case NS_THEME_TAB_PANELS:
+    case NS_THEME_MENUPOPUP:
+    case NS_THEME_MENUITEM:
+    case NS_THEME_MENUSEPARATOR:
+    case NS_THEME_TOOLTIP:
+    case NS_THEME_SPINNER:
+    case NS_THEME_SPINNER_UP_BUTTON:
+    case NS_THEME_SPINNER_DOWN_BUTTON:
+    case NS_THEME_TOOLBAR_SEPARATOR:
+    case NS_THEME_TOOLBOX:
+    case NS_THEME_NUMBER_INPUT:
+    case NS_THEME_TEXTFIELD:
+    case NS_THEME_TREEVIEW:
+    case NS_THEME_TREEVIEW_LINE:
+    case NS_THEME_TEXTFIELD_MULTILINE:
+    case NS_THEME_LISTBOX:
+    case NS_THEME_RESIZER:
+      return false;
+    default:
+      return true;
+  }
+}
+
 nsITheme::Transparency
 nsNativeThemeCocoa::GetWidgetTransparency(nsIFrame* aFrame, uint8_t aWidgetType)
 {
@@ -3181,6 +3370,10 @@ nsNativeThemeCocoa::GetWidgetTransparency(nsIFrame* aFrame, uint8_t aWidgetType)
   case NS_THEME_STATUSBAR:
     // Knowing that scrollbars and statusbars are opaque improves
     // performance, because we create layers for them.
+    return eOpaque;
+
+  case NS_THEME_TOOLBAR:
+  case NS_THEME_MOZ_MAC_UNIFIED_TOOLBAR:
     return eOpaque;
 
   default:

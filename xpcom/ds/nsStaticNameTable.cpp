@@ -9,10 +9,8 @@
 #include "nsCRT.h"
 
 #include "nscore.h"
-#include "nsString.h"
-#include "nsReadableUtils.h"
-#include "prbit.h"
 #include "mozilla/HashFunctions.h"
+#include "nsTraceRefcnt.h"
 
 #define PL_ARENA_CONST_ALIGN_MASK 3
 #include "nsStaticNameTable.h"
@@ -80,7 +78,7 @@ caseInsensitiveStringHashKey(PLDHashTable *table, const void *key)
     PLDHashNumber h = 0;
     const NameTableKey* tableKey = static_cast<const NameTableKey*>(key);
     if (tableKey->mIsUnichar) {
-        for (const PRUnichar* s = tableKey->mKeyStr.m2b->get();
+        for (const char16_t* s = tableKey->mKeyStr.m2b->get();
              *s != '\0';
              s++)
             h = AddToHash(h, *s & ~0x20);

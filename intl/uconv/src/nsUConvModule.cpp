@@ -2,17 +2,11 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#include "nsCOMPtr.h"
-#include "nsCRT.h"
 #include "mozilla/ModuleUtils.h"
-#include "nsIComponentManager.h"
-#include "nsICategoryManager.h"
 #include "nsICharsetConverterManager.h"
 #include "nsEncoderDecoderUtils.h"
 #include "nsIUnicodeDecoder.h"
 #include "nsIUnicodeEncoder.h"
-#include "nsIServiceManager.h"
-
 
 #include "nsUConvCID.h"
 #include "nsCharsetConverterManager.h"
@@ -21,17 +15,13 @@
 #include "nsConverterInputStream.h"
 #include "nsConverterOutputStream.h"
 #include "nsScriptableUConv.h"
-
+#include "nsIOutputStream.h"
 #include "nsITextToSubURI.h"
 
-#include "nsIFile.h"
-
-#include "nsCRT.h"
-
-#include "nsUCSupport.h"
 #include "nsISO88591ToUnicode.h"
 #include "nsCP1252ToUnicode.h"
 #include "nsMacRomanToUnicode.h"
+#include "nsReplacementToUnicode.h"
 #include "nsUTF8ToUnicode.h"
 #include "nsUnicodeToISO88591.h"
 #include "nsUnicodeToCP1252.h"
@@ -138,9 +128,6 @@
 #include "nsUnicodeToUTF16.h"
 #include "nsUnicodeToT61.h"
 #include "nsUnicodeToUserDefined.h"
-#include "nsUnicodeToSymbol.h"
-#include "nsUnicodeToZapfDingbat.h"
-#include "nsUnicodeToAdobeEuro.h"
 #include "nsMacArabicToUnicode.h"
 #include "nsMacDevanagariToUnicode.h"
 #include "nsMacFarsiToUnicode.h"
@@ -153,7 +140,6 @@
 #include "nsUnicodeToMacGujarati.h"
 #include "nsUnicodeToMacGurmukhi.h"
 #include "nsUnicodeToMacHebrew.h"
-#include "nsUnicodeToTSCII.h"
 
 // ucvibm
 #include "nsUCvIBMCID.h"
@@ -223,7 +209,6 @@
 #include "nsGB2312ToUnicodeV2.h"
 #include "nsUnicodeToGB2312V2.h"
 #include "nsISO2022CNToUnicode.h"
-#include "nsUnicodeToISO2022CN.h"
 #include "gbku.h"
 
 NS_CONVERTER_REGISTRY_START
@@ -231,6 +216,7 @@ NS_UCONV_REG_UNREG("ISO-8859-1", NS_ISO88591TOUNICODE_CID, NS_UNICODETOISO88591_
 NS_UCONV_REG_UNREG("windows-1252", NS_CP1252TOUNICODE_CID, NS_UNICODETOCP1252_CID)
 NS_UCONV_REG_UNREG("macintosh", NS_MACROMANTOUNICODE_CID, NS_UNICODETOMACROMAN_CID)
 NS_UCONV_REG_UNREG("UTF-8", NS_UTF8TOUNICODE_CID, NS_UNICODETOUTF8_CID)
+NS_UCONV_REG_UNREG("replacement", NS_REPLACEMENTTOUNICODE_CID, NS_UNICODETOUTF8_CID)
 
   // ucvlatin
 NS_UCONV_REG_UNREG("us-ascii", NS_ASCIITOUNICODE_CID, NS_UNICODETOASCII_CID)
@@ -291,11 +277,6 @@ NS_UCONV_REG_UNREG("x-mac-gurmukhi" , NS_MACGURMUKHITOUNICODE_CID, NS_UNICODETOM
 NS_UCONV_REG_UNREG("x-mac-gujarati" , NS_MACGUJARATITOUNICODE_CID, NS_UNICODETOMACGUJARATI_CID)
 NS_UCONV_REG_UNREG("x-mac-hebrew" , NS_MACHEBREWTOUNICODE_CID, NS_UNICODETOMACHEBREW_CID)
 
-NS_UCONV_REG_UNREG_ENCODER("Adobe-Symbol-Encoding" , NS_UNICODETOSYMBOL_CID)
-NS_UCONV_REG_UNREG_ENCODER("x-zapf-dingbats" , NS_UNICODETOZAPFDINGBATS_CID)
-NS_UCONV_REG_UNREG_ENCODER("x-tscii",  NS_UNICODETOTSCII_CID)
-NS_UCONV_REG_UNREG_ENCODER("x-tamilttf-0",  NS_UNICODETOTAMILTTF_CID)
-
   // ucvibm
 NS_UCONV_REG_UNREG("IBM850", NS_CP850TOUNICODE_CID, NS_UNICODETOCP850_CID)
 NS_UCONV_REG_UNREG("IBM852", NS_CP852TOUNICODE_CID, NS_UNICODETOCP852_CID)
@@ -344,6 +325,7 @@ NS_CONVERTER_REGISTRY_END
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToUTF8)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUTF8ToUnicode)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsReplacementToUnicode)
 
 // ucvlatin
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUTF7ToUnicode)
@@ -356,8 +338,6 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToMUTF7)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToUTF16BE)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToUTF16LE)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToUTF16)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToTSCII)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToTamilTTF)
 
 // ucvibm
 
@@ -375,9 +355,7 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToISO2022JP)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsISO2022KRToUnicode)
 
 // ucvcn
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsGB2312ToUnicodeV2)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToGB2312V2)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsGBKToUnicode)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToGBK)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsHZToUnicode)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUnicodeToHZ)
@@ -518,6 +496,7 @@ NS_DEFINE_NAMED_CID(NS_ISO88591TOUNICODE_CID);
 NS_DEFINE_NAMED_CID(NS_CP1252TOUNICODE_CID);
 NS_DEFINE_NAMED_CID(NS_MACROMANTOUNICODE_CID);
 NS_DEFINE_NAMED_CID(NS_UTF8TOUNICODE_CID);
+NS_DEFINE_NAMED_CID(NS_REPLACEMENTTOUNICODE_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOISO88591_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOCP1252_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACROMAN_CID);
@@ -630,17 +609,12 @@ NS_DEFINE_NAMED_CID(NS_UNICODETOUTF16LE_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOUTF16_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOT61_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOUSERDEFINED_CID);
-NS_DEFINE_NAMED_CID(NS_UNICODETOSYMBOL_CID);
-NS_DEFINE_NAMED_CID(NS_UNICODETOZAPFDINGBATS_CID);
-NS_DEFINE_NAMED_CID(NS_UNICODETOADOBEEURO_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACARABIC_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACDEVANAGARI_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACFARSI_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACGURMUKHI_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACGUJARATI_CID);
 NS_DEFINE_NAMED_CID(NS_UNICODETOMACHEBREW_CID);
-NS_DEFINE_NAMED_CID(NS_UNICODETOTSCII_CID);
-NS_DEFINE_NAMED_CID(NS_UNICODETOTAMILTTF_CID);
 NS_DEFINE_NAMED_CID(NS_CP850TOUNICODE_CID);
 NS_DEFINE_NAMED_CID(NS_CP852TOUNICODE_CID);
 NS_DEFINE_NAMED_CID(NS_CP855TOUNICODE_CID);
@@ -702,6 +676,7 @@ static const mozilla::Module::CIDEntry kUConvCIDs[] = {
   { &kNS_ISO88591TOUNICODE_CID, false, nullptr, nsISO88591ToUnicodeConstructor },
   { &kNS_CP1252TOUNICODE_CID, false, nullptr, nsCP1252ToUnicodeConstructor },
   { &kNS_MACROMANTOUNICODE_CID, false, nullptr, nsMacRomanToUnicodeConstructor },
+  { &kNS_REPLACEMENTTOUNICODE_CID, false, nullptr, nsReplacementToUnicodeConstructor },
   { &kNS_UTF8TOUNICODE_CID, false, nullptr, nsUTF8ToUnicodeConstructor },
   { &kNS_UNICODETOISO88591_CID, false, nullptr, nsUnicodeToISO88591Constructor },
   { &kNS_UNICODETOCP1252_CID, false, nullptr, nsUnicodeToCP1252Constructor },
@@ -815,17 +790,12 @@ static const mozilla::Module::CIDEntry kUConvCIDs[] = {
   { &kNS_UNICODETOUTF16_CID, false, nullptr, nsUnicodeToUTF16Constructor },
   { &kNS_UNICODETOT61_CID, false, nullptr, nsUnicodeToT61Constructor },
   { &kNS_UNICODETOUSERDEFINED_CID, false, nullptr, nsUnicodeToUserDefinedConstructor },
-  { &kNS_UNICODETOSYMBOL_CID, false, nullptr, nsUnicodeToSymbolConstructor },
-  { &kNS_UNICODETOZAPFDINGBATS_CID, false, nullptr, nsUnicodeToZapfDingbatConstructor },
-  { &kNS_UNICODETOADOBEEURO_CID, false, nullptr, nsUnicodeToAdobeEuroConstructor },
   { &kNS_UNICODETOMACARABIC_CID, false, nullptr, nsUnicodeToMacArabicConstructor },
   { &kNS_UNICODETOMACDEVANAGARI_CID, false, nullptr, nsUnicodeToMacDevanagariConstructor },
   { &kNS_UNICODETOMACFARSI_CID, false, nullptr, nsUnicodeToMacFarsiConstructor },
   { &kNS_UNICODETOMACGURMUKHI_CID, false, nullptr, nsUnicodeToMacGurmukhiConstructor },
   { &kNS_UNICODETOMACGUJARATI_CID, false, nullptr, nsUnicodeToMacGujaratiConstructor },
   { &kNS_UNICODETOMACHEBREW_CID, false, nullptr, nsUnicodeToMacHebrewConstructor },
-  { &kNS_UNICODETOTSCII_CID, false, nullptr, nsUnicodeToTSCIIConstructor },
-  { &kNS_UNICODETOTAMILTTF_CID, false, nullptr, nsUnicodeToTamilTTFConstructor },
   { &kNS_CP850TOUNICODE_CID, false, nullptr, nsCP850ToUnicodeConstructor },
   { &kNS_CP852TOUNICODE_CID, false, nullptr, nsCP852ToUnicodeConstructor },
   { &kNS_CP855TOUNICODE_CID, false, nullptr, nsCP855ToUnicodeConstructor },
@@ -867,9 +837,9 @@ static const mozilla::Module::CIDEntry kUConvCIDs[] = {
   { &kNS_JOHABTOUNICODE_CID, false, nullptr, nsJohabToUnicodeConstructor },
   { &kNS_UNICODETOJOHAB_CID, false, nullptr, nsUnicodeToJohabConstructor },
   { &kNS_ISO2022KRTOUNICODE_CID, false, nullptr, nsISO2022KRToUnicodeConstructor },
-  { &kNS_GB2312TOUNICODE_CID, false, nullptr, nsGB2312ToUnicodeV2Constructor },
+  { &kNS_GB2312TOUNICODE_CID, false, nullptr, nsGB18030ToUnicodeConstructor },
   { &kNS_UNICODETOGB2312_CID, false, nullptr, nsUnicodeToGB2312V2Constructor },
-  { &kNS_GBKTOUNICODE_CID, false, nullptr, nsGBKToUnicodeConstructor },
+  { &kNS_GBKTOUNICODE_CID, false, nullptr, nsGB18030ToUnicodeConstructor },
   { &kNS_UNICODETOGBK_CID, false, nullptr, nsUnicodeToGBKConstructor },
   { &kNS_HZTOUNICODE_CID, false, nullptr, nsHZToUnicodeConstructor },
   { &kNS_UNICODETOHZ_CID, false, nullptr, nsUnicodeToHZConstructor },
@@ -889,6 +859,7 @@ static const mozilla::Module::ContractIDEntry kUConvContracts[] = {
   { NS_ISO88591TOUNICODE_CONTRACTID, &kNS_ISO88591TOUNICODE_CID },
   { NS_CP1252TOUNICODE_CONTRACTID, &kNS_CP1252TOUNICODE_CID },
   { NS_MACROMANTOUNICODE_CONTRACTID, &kNS_MACROMANTOUNICODE_CID },
+  { NS_REPLACEMENTTOUNICODE_CONTRACTID, &kNS_REPLACEMENTTOUNICODE_CID },
   { NS_UTF8TOUNICODE_CONTRACTID, &kNS_UTF8TOUNICODE_CID },
   { NS_UNICODETOISO88591_CONTRACTID, &kNS_UNICODETOISO88591_CID },
   { NS_UNICODETOCP1252_CONTRACTID, &kNS_UNICODETOCP1252_CID },
@@ -1002,17 +973,12 @@ static const mozilla::Module::ContractIDEntry kUConvContracts[] = {
   { NS_UNICODEENCODER_CONTRACTID_BASE "UTF-16", &kNS_UNICODETOUTF16_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "T.61-8bit", &kNS_UNICODETOT61_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-user-defined", &kNS_UNICODETOUSERDEFINED_CID },
-  { NS_UNICODEENCODER_CONTRACTID_BASE "Adobe-Symbol-Encoding", &kNS_UNICODETOSYMBOL_CID },
-  { NS_UNICODEENCODER_CONTRACTID_BASE "x-zapf-dingbats", &kNS_UNICODETOZAPFDINGBATS_CID },
-  { NS_UNICODEENCODER_CONTRACTID_BASE "x-adobe-euro", &kNS_UNICODETOADOBEEURO_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-mac-arabic", &kNS_UNICODETOMACARABIC_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-mac-devanagari", &kNS_UNICODETOMACDEVANAGARI_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-mac-farsi", &kNS_UNICODETOMACFARSI_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-mac-gurmukhi", &kNS_UNICODETOMACGURMUKHI_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-mac-gujarati", &kNS_UNICODETOMACGUJARATI_CID },
   { NS_UNICODEENCODER_CONTRACTID_BASE "x-mac-hebrew", &kNS_UNICODETOMACHEBREW_CID },
-  { NS_UNICODEENCODER_CONTRACTID_BASE "x-tscii", &kNS_UNICODETOTSCII_CID },
-  { NS_UNICODEENCODER_CONTRACTID_BASE "x-tamilttf-0", &kNS_UNICODETOTAMILTTF_CID },
   { NS_UNICODEDECODER_CONTRACTID_BASE "IBM850", &kNS_CP850TOUNICODE_CID },
   { NS_UNICODEDECODER_CONTRACTID_BASE "IBM852", &kNS_CP852TOUNICODE_CID },
   { NS_UNICODEDECODER_CONTRACTID_BASE "IBM855", &kNS_CP855TOUNICODE_CID },

@@ -9,6 +9,7 @@
 #include "nsIDOMHTMLInputElement.h"
 #include "nsEventStateManager.h"
 #include "mozilla/LookAndFeel.h"
+#include "nsDeviceContext.h"
 
 using namespace mozilla;
 
@@ -93,8 +94,8 @@ nsFormControlFrame::Reflow(nsPresContext*          aPresContext,
 
   if (nsLayoutUtils::FontSizeInflationEnabled(aPresContext)) {
     float inflation = nsLayoutUtils::FontSizeInflationFor(this);
-    aDesiredSize.width *= inflation;
-    aDesiredSize.height *= inflation;
+    aDesiredSize.Width() *= inflation;
+    aDesiredSize.Height() *= inflation;
     aDesiredSize.UnionOverflowAreasWithDesiredBounds();
     FinishAndStoreOverflow(&aDesiredSize);
   }
@@ -133,8 +134,8 @@ nsFormControlFrame::SetFocus(bool aOn, bool aRepaint)
 
 NS_METHOD
 nsFormControlFrame::HandleEvent(nsPresContext* aPresContext, 
-                                          nsGUIEvent* aEvent,
-                                          nsEventStatus* aEventStatus)
+                                WidgetGUIEvent* aEvent,
+                                nsEventStatus* aEventStatus)
 {
   // Check for user-input:none style
   const nsStyleUserInterface* uiStyle = StyleUserInterface();

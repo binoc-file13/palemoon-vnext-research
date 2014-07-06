@@ -10,9 +10,9 @@ function run_test() {
 function _getWorker() {
   let _postedMessage;
   let _worker = newWorker({
-    postRILMessage: function fakePostRILMessage(data) {
+    postRILMessage: function(data) {
     },
-    postMessage: function fakePostMessage(message) {
+    postMessage: function(message) {
       _postedMessage = message;
     }
   });
@@ -74,7 +74,7 @@ add_test(function test_queryCallWaiting_success_enabled_true() {
   let workerHelper = _getWorker();
   let worker = workerHelper.worker;
 
-  worker.Buf.readUint32 = function fakeReadUint32() {
+  worker.Buf.readInt32 = function fakeReadUint32() {
     return worker.Buf.int32Array.pop();
   };
 
@@ -104,7 +104,7 @@ add_test(function test_queryCallWaiting_success_enabled_false() {
   let workerHelper = _getWorker();
   let worker = workerHelper.worker;
 
-  worker.Buf.readUint32 = function fakeReadUint32() {
+  worker.Buf.readInt32 = function fakeReadUint32() {
     return worker.Buf.int32Array.pop();
   };
 

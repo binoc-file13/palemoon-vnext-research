@@ -7,15 +7,11 @@
 #define nsMathMLContainerFrame_h___
 
 #include "mozilla/Attributes.h"
-#include "nsCOMPtr.h"
 #include "nsContainerFrame.h"
 #include "nsBlockFrame.h"
 #include "nsInlineFrame.h"
-#include "nsMathMLAtoms.h"
 #include "nsMathMLOperators.h"
-#include "nsMathMLChar.h"
 #include "nsMathMLFrame.h"
-#include "nsMathMLParts.h"
 #include "mozilla/Likely.h"
 
 /*
@@ -37,6 +33,7 @@ class nsMathMLContainerFrame : public nsContainerFrame,
 public:
   nsMathMLContainerFrame(nsStyleContext* aContext) : nsContainerFrame(aContext) {}
 
+  NS_DECL_QUERYFRAME_TARGET(nsMathMLContainerFrame)
   NS_DECL_QUERYFRAME
   NS_DECL_FRAMEARENA_HELPERS
 
@@ -96,16 +93,18 @@ public:
               nsIFrame*       aOldFrame) MOZ_OVERRIDE;
 
   /**
-   * Both GetMinWidth and GetPrefWidth return whatever
-   * GetIntrinsicWidth returns.
+   * Both GetMinWidth and GetPrefWidth use the intrinsic width metrics
+   * returned by GetIntrinsicMetrics, including ink overflow.
    */
   virtual nscoord GetMinWidth(nsRenderingContext *aRenderingContext) MOZ_OVERRIDE;
   virtual nscoord GetPrefWidth(nsRenderingContext *aRenderingContext) MOZ_OVERRIDE;
 
   /**
-   * Return the intrinsic width of the frame's content area.
+   * Return the intrinsic horizontal metrics of the frame's content area.
    */
-  virtual nscoord GetIntrinsicWidth(nsRenderingContext *aRenderingContext);
+  virtual void
+  GetIntrinsicWidthMetrics(nsRenderingContext* aRenderingContext,
+                           nsHTMLReflowMetrics& aDesiredSize);
 
   NS_IMETHOD
   Reflow(nsPresContext*          aPresContext,
@@ -152,7 +151,7 @@ public:
   //    2b. If the automatic data to update affects us in some way, we ask our parent
   //        to re-layout its children using ReLayoutChildren(mParent);
   //        Therefore, there is an overhead here in that our siblings are re-laid
-  //        too (e.g., this happens with <mstyle>, <munder>, <mover>, <munderover>). 
+  //        too (e.g., this happens with <munder>, <mover>, <munderover>). 
   NS_IMETHOD
   AttributeChanged(int32_t         aNameSpaceID,
                    nsIAtom*        aAttribute,
@@ -248,8 +247,8 @@ public:
    * @param aValue The value for which the parse error occured.
    */
   nsresult
-  ReportParseError(const PRUnichar*           aAttribute,
-                   const PRUnichar*           aValue);
+  ReportParseError(const char16_t*           aAttribute,
+                   const char16_t*           aValue);
 
   /*
    * Helper to call ReportErrorToConsole when certain tags
@@ -259,12 +258,20 @@ public:
   ReportChildCountError();
 
   /*
+   * Helper to call ReportErrorToConsole when certain tags have
+   * invalid child tags
+   * @param aChildTag The tag which is forbidden in this context
+   */
+  nsresult
+  ReportInvalidChildError(nsIAtom* aChildTag);
+
+  /*
    * Helper to call ReportToConsole when an error occurs.
    * @param aParams see nsContentUtils::ReportToConsole
    */
   nsresult
   ReportErrorToConsole(const char*       aErrorMsgId,
-                       const PRUnichar** aParams = nullptr,
+                       const char16_t** aParams = nullptr,
                        uint32_t          aParamCount = 0);
 
   // helper method to reflow a child frame. We are inline frames, and we don't
@@ -331,6 +338,11 @@ public:
                                        int32_t         aLastChildIndex,
                                        uint32_t        aFlagsValues,
                                        uint32_t        aFlagsToUpdate);
+
+  // Sets flags on aFrame and all descendant frames
+  static void
+  PropagateFrameFlagFor(nsIFrame* aFrame,
+                        uint64_t  aFlags);
 
   // helper to let the rebuild of automatic data (presentation data
   // and embellishement data) walk through a subtree that may contain

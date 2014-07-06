@@ -5,20 +5,15 @@
 
 /* rendering object for the HTML <canvas> element */
 
-#include "nsHTMLParts.h"
-#include "nsCOMPtr.h"
-#include "nsIServiceManager.h"
-#include "nsGkAtoms.h"
-
 #include "nsHTMLCanvasFrame.h"
+
+#include "nsGkAtoms.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 #include "nsDisplayList.h"
 #include "nsLayoutUtils.h"
 #include "Layers.h"
+#include "ActiveLayerTracker.h"
 
-#include "nsTransform2D.h"
-
-#include "gfxContext.h"
 #include <algorithm>
 
 using namespace mozilla;
@@ -61,23 +56,24 @@ public:
 
   virtual already_AddRefed<Layer> BuildLayer(nsDisplayListBuilder* aBuilder,
                                              LayerManager* aManager,
-                                             const ContainerParameters& aContainerParameters)
+                                             const ContainerLayerParameters& aContainerParameters)
   {
     return static_cast<nsHTMLCanvasFrame*>(mFrame)->
       BuildLayer(aBuilder, aManager, this, aContainerParameters);
   }
   virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
                                    LayerManager* aManager,
-                                   const FrameLayerBuilder::ContainerParameters& aParameters)
+                                   const ContainerLayerParameters& aParameters)
   {
     if (HTMLCanvasElement::FromContent(mFrame->GetContent())->ShouldForceInactiveLayer(aManager))
       return LAYER_INACTIVE;
 
     // If compositing is cheap, just do that
-    if (aManager->IsCompositingCheap())
+    if (aManager->IsCompositingCheap() ||
+        ActiveLayerTracker::IsContentActive(mFrame))
       return mozilla::LAYER_ACTIVE;
 
-    return mFrame->AreLayersMarkedActive() ? LAYER_ACTIVE : LAYER_INACTIVE;
+    return LAYER_INACTIVE;
   }
 };
 
@@ -102,9 +98,9 @@ nsHTMLCanvasFrame::Init(nsIContent* aContent,
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   // We can fill in the canvas before the canvas frame is created, in
-  // which case we never get around to marking the layer active. Therefore,
+  // which case we never get around to marking the content as active. Therefore,
   // we mark it active here when we create the frame.
-  MarkLayersActive(nsChangeHint(0));
+  ActiveLayerTracker::NotifyContentChange(this);
 }
 
 nsHTMLCanvasFrame::~nsHTMLCanvasFrame()
@@ -184,25 +180,25 @@ nsHTMLCanvasFrame::Reflow(nsPresContext*           aPresContext,
   DISPLAY_REFLOW(aPresContext, this, aReflowState, aMetrics, aStatus);
   NS_FRAME_TRACE(NS_FRAME_TRACE_CALLS,
                   ("enter nsHTMLCanvasFrame::Reflow: availSize=%d,%d",
-                  aReflowState.availableWidth, aReflowState.availableHeight));
+                  aReflowState.AvailableWidth(), aReflowState.AvailableHeight()));
 
   NS_PRECONDITION(mState & NS_FRAME_IN_REFLOW, "frame is not in reflow");
 
   aStatus = NS_FRAME_COMPLETE;
 
-  aMetrics.width = aReflowState.ComputedWidth();
-  aMetrics.height = aReflowState.ComputedHeight();
+  aMetrics.Width() = aReflowState.ComputedWidth();
+  aMetrics.Height() = aReflowState.ComputedHeight();
 
   // stash this away so we can compute our inner area later
-  mBorderPadding   = aReflowState.mComputedBorderPadding;
+  mBorderPadding   = aReflowState.ComputedPhysicalBorderPadding();
 
-  aMetrics.width += mBorderPadding.left + mBorderPadding.right;
-  aMetrics.height += mBorderPadding.top + mBorderPadding.bottom;
+  aMetrics.Width() += mBorderPadding.left + mBorderPadding.right;
+  aMetrics.Height() += mBorderPadding.top + mBorderPadding.bottom;
 
   if (GetPrevInFlow()) {
-    nscoord y = GetContinuationOffset(&aMetrics.width);
-    aMetrics.height -= y + mBorderPadding.top;
-    aMetrics.height = std::max(0, aMetrics.height);
+    nscoord y = GetContinuationOffset(&aMetrics.Width());
+    aMetrics.Height() -= y + mBorderPadding.top;
+    aMetrics.Height() = std::max(0, aMetrics.Height());
   }
 
   aMetrics.SetOverflowAreasToDesiredBounds();
@@ -213,17 +209,17 @@ nsHTMLCanvasFrame::Reflow(nsPresContext*           aPresContext,
   nsSize availSize(aReflowState.ComputedWidth(), NS_UNCONSTRAINEDSIZE);
   nsIFrame* childFrame = mFrames.FirstChild();
   NS_ASSERTION(!childFrame->GetNextSibling(), "HTML canvas should have 1 kid");
-  nsHTMLReflowMetrics childDesiredSize(aMetrics.mFlags);
+  nsHTMLReflowMetrics childDesiredSize(aReflowState.GetWritingMode(), aMetrics.mFlags);
   nsHTMLReflowState childReflowState(aPresContext, aReflowState, childFrame,
                                      availSize);
   ReflowChild(childFrame, aPresContext, childDesiredSize, childReflowState,
               0, 0, 0, childStatus, nullptr);
-  FinishReflowChild(childFrame, aPresContext, &childReflowState,
-                    childDesiredSize, 0, 0, 0);
+  FinishReflowChild(childFrame, aPresContext, childDesiredSize,
+                    &childReflowState, 0, 0, 0);
 
   NS_FRAME_TRACE(NS_FRAME_TRACE_CALLS,
                   ("exit nsHTMLCanvasFrame::Reflow: size=%d,%d",
-                  aMetrics.width, aMetrics.height));
+                  aMetrics.Width(), aMetrics.Height()));
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowState, aMetrics);
 
   return NS_OK;
@@ -246,7 +242,7 @@ already_AddRefed<Layer>
 nsHTMLCanvasFrame::BuildLayer(nsDisplayListBuilder* aBuilder,
                               LayerManager* aManager,
                               nsDisplayItem* aItem,
-                              const ContainerParameters& aContainerParameters)
+                              const ContainerLayerParameters& aContainerParameters)
 {
   nsRect area = GetContentRect() - GetPosition() + aItem->ToReferenceFrame();
   HTMLCanvasElement* element = static_cast<HTMLCanvasElement*>(GetContent());
@@ -270,10 +266,11 @@ nsHTMLCanvasFrame::BuildLayer(nsDisplayListBuilder* aBuilder,
                       presContext->AppUnitsToGfxUnits(area.height));
 
   // Transform the canvas into the right place
-  gfxMatrix transform;
-  transform.Translate(r.TopLeft() + aContainerParameters.mOffset);
+  gfx::Matrix transform;
+  gfxPoint p = r.TopLeft() + aContainerParameters.mOffset;
+  transform.Translate(p.x, p.y);
   transform.Scale(r.Width()/canvasSize.width, r.Height()/canvasSize.height);
-  layer->SetBaseTransform(gfx3DMatrix::From2D(transform));
+  layer->SetBaseTransform(gfx::Matrix4x4::From2D(transform));
   layer->SetFilter(nsLayoutUtils::GetGraphicsFilterForFrame(this));
   layer->SetVisibleRegion(nsIntRect(0, 0, canvasSize.width, canvasSize.height));
 
@@ -338,7 +335,7 @@ nsHTMLCanvasFrame::AccessibleType()
 }
 #endif
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
 NS_IMETHODIMP
 nsHTMLCanvasFrame::GetFrameName(nsAString& aResult) const
 {

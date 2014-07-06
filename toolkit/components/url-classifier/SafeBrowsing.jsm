@@ -10,8 +10,12 @@ const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/Services.jsm");
 
-const [phishingList, malwareList] =
-  Services.prefs.getCharPref("urlclassifier.gethashtables").split(",").map(function(value) value.trim());
+const phishingList = Services.prefs.getCharPref("urlclassifier.phish_table");
+const malwareList = Services.prefs.getCharPref("urlclassifier.malware_table");
+const downloadBlockList =
+  Services.prefs.getCharPref("urlclassifier.download_block_table");
+const downloadAllowList =
+  Services.prefs.getCharPref("urlclassifier.download_allow_table");
 
 var debug = false;
 function log(...stuff) {
@@ -31,7 +35,7 @@ this.SafeBrowsing = {
       return;
     }
 
-    Services.prefs.addObserver("browser.safebrowsing", this.readPrefs, false);
+    Services.prefs.addObserver("browser.safebrowsing", this.readPrefs.bind(this), false);
     this.readPrefs();
 
     // Register our two types of tables, and add custom Mozilla entries
@@ -39,6 +43,8 @@ this.SafeBrowsing = {
                       getService(Ci.nsIUrlListManager);
     listManager.registerTable(phishingList, false);
     listManager.registerTable(malwareList, false);
+    listManager.registerTable(downloadBlockList, false);
+    listManager.registerTable(downloadAllowList, false);
     this.addMozEntries();
 
     this.controlUpdateChecking();
@@ -53,7 +59,6 @@ this.SafeBrowsing = {
   malwareEnabled:  false,
 
   updateURL:             null,
-  keyURL:                null,
   gethashURL:            null,
 
   reportURL:             null,
@@ -92,7 +97,7 @@ this.SafeBrowsing = {
       var clientID = Services.appinfo.name;
     }
 
-    log("initializing safe browsing URLs");
+    log("initializing safe browsing URLs, client id ", clientID);
     let basePref = "browser.safebrowsing.";
 
     // Urls to HTML report pages
@@ -105,21 +110,15 @@ this.SafeBrowsing = {
 
     // Urls used to update DB
     this.updateURL  = Services.urlFormatter.formatURLPref(basePref + "updateURL");
-    this.keyURL     = Services.urlFormatter.formatURLPref(basePref + "keyURL");
     this.gethashURL = Services.urlFormatter.formatURLPref(basePref + "gethashURL");
 
     this.updateURL  = this.updateURL.replace("SAFEBROWSING_ID", clientID);
-    this.keyURL     = this.keyURL.replace("SAFEBROWSING_ID", clientID);
     this.gethashURL = this.gethashURL.replace("SAFEBROWSING_ID", clientID);
 
     let listManager = Cc["@mozilla.org/url-classifier/listmanager;1"].
                       getService(Ci.nsIUrlListManager);
 
     listManager.setUpdateUrl(this.updateURL);
-    // XXX Bug 779317 - setKeyUrl has the side effect of fetching a key from the server.
-    // This shouldn't happen if anti-phishing/anti-malware is disabled.
-    if (this.phishingEnabled || this.malwareEnabled)
-      listManager.setKeyUrl(this.keyURL);
     listManager.setGethashUrl(this.gethashURL);
   },
 
@@ -135,10 +134,15 @@ this.SafeBrowsing = {
     else
       listManager.disableUpdate(phishingList);
 
-    if (this.malwareEnabled)
+    if (this.malwareEnabled) {
       listManager.enableUpdate(malwareList);
-    else
+      listManager.enableUpdate(downloadBlockList);
+      listManager.enableUpdate(downloadAllowList);
+    } else {
       listManager.disableUpdate(malwareList);
+      listManager.disableUpdate(downloadBlockList);
+      listManager.disableUpdate(downloadAllowList);
+    }
   },
 
 

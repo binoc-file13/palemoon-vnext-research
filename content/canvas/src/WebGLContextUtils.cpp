@@ -6,6 +6,7 @@
 #include <stdarg.h>
 
 #include "WebGLContext.h"
+#include "GLContext.h"
 
 #include "prprf.h"
 
@@ -21,6 +22,25 @@
 #include "mozilla/Preferences.h"
 
 using namespace mozilla;
+
+namespace mozilla {
+
+bool
+IsGLDepthFormat(GLenum internalFormat)
+{
+    return (internalFormat == LOCAL_GL_DEPTH_COMPONENT ||
+            internalFormat == LOCAL_GL_DEPTH_COMPONENT16 ||
+            internalFormat == LOCAL_GL_DEPTH_COMPONENT32);
+}
+
+bool
+IsGLDepthStencilFormat(GLenum internalFormat)
+{
+    return (internalFormat == LOCAL_GL_DEPTH_STENCIL ||
+            internalFormat == LOCAL_GL_DEPTH24_STENCIL8);
+}
+
+} // namespace mozilla
 
 void
 WebGLContext::GenerateWarning(const char *fmt, ...)
@@ -55,9 +75,19 @@ WebGLContext::GenerateWarning(const char *fmt, va_list ap)
     }
 }
 
+bool
+WebGLContext::ShouldGenerateWarnings() const
+{
+    if (mMaxWarnings == -1) {
+        return true;
+    }
+
+    return mAlreadyGeneratedWarnings < mMaxWarnings;
+}
+
 CheckedUint32
-WebGLContext::GetImageSize(WebGLsizei height, 
-                           WebGLsizei width, 
+WebGLContext::GetImageSize(GLsizei height,
+                           GLsizei width,
                            uint32_t pixelSize,
                            uint32_t packOrUnpackAlignment)
 {
@@ -74,13 +104,13 @@ WebGLContext::GetImageSize(WebGLsizei height,
 }
 
 void
-WebGLContext::SynthesizeGLError(WebGLenum err)
+WebGLContext::SynthesizeGLError(GLenum err)
 {
     // If there is already a pending error, don't overwrite it;
     // but if there isn't, then we need to check for a gl error
     // that may have occurred before this one and use that code
     // instead.
-    
+
     MakeContextCurrent();
 
     UpdateWebGLErrorAndClearGLError();
@@ -90,7 +120,7 @@ WebGLContext::SynthesizeGLError(WebGLenum err)
 }
 
 void
-WebGLContext::SynthesizeGLError(WebGLenum err, const char *fmt, ...)
+WebGLContext::SynthesizeGLError(GLenum err, const char *fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
@@ -109,6 +139,12 @@ WebGLContext::ErrorInvalidEnum(const char *fmt, ...)
     va_end(va);
 
     return SynthesizeGLError(LOCAL_GL_INVALID_ENUM);
+}
+
+void
+WebGLContext::ErrorInvalidEnumInfo(const char *info, GLenum enumvalue)
+{
+    return ErrorInvalidEnum("%s: invalid enum value 0x%x", info, enumvalue);
 }
 
 void
@@ -172,7 +208,7 @@ WebGLContext::ErrorName(GLenum error)
         case LOCAL_GL_NO_ERROR:
             return "NO_ERROR";
         default:
-            NS_ABORT();
+            MOZ_ASSERT(false);
             return "[unknown WebGL error!]";
     }
 }
@@ -180,16 +216,7 @@ WebGLContext::ErrorName(GLenum error)
 bool
 WebGLContext::IsTextureFormatCompressed(GLenum format)
 {
-    switch(format) {
-        case LOCAL_GL_RGB:
-        case LOCAL_GL_RGBA:
-        case LOCAL_GL_ALPHA:
-        case LOCAL_GL_LUMINANCE:
-        case LOCAL_GL_LUMINANCE_ALPHA:
-        case LOCAL_GL_DEPTH_COMPONENT:
-        case LOCAL_GL_DEPTH_STENCIL:
-            return false;
-
+    switch (format) {
         case LOCAL_GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
         case LOCAL_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
         case LOCAL_GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
@@ -202,9 +229,19 @@ WebGLContext::IsTextureFormatCompressed(GLenum format)
         case LOCAL_GL_COMPRESSED_RGBA_PVRTC_4BPPV1:
         case LOCAL_GL_COMPRESSED_RGBA_PVRTC_2BPPV1:
             return true;
+        default:
+            return false;
     }
+}
 
-    NS_NOTREACHED("Invalid WebGL texture format?");
-    NS_ABORT();
-    return false;
+void
+WebGLContext::UpdateWebGLErrorAndClearGLError(GLenum *currentGLError)
+{
+    // get and clear GL error in ALL cases
+    GLenum error = gl->GetAndClearError();
+    if (currentGLError)
+        *currentGLError = error;
+    // only store in mWebGLError if is hasn't already recorded an error
+    if (!mWebGLError)
+        mWebGLError = error;
 }

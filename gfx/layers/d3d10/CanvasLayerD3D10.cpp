@@ -12,12 +12,24 @@
 #include "SurfaceStream.h"
 #include "SharedSurfaceANGLE.h"
 #include "gfxContext.h"
+#include "GLContext.h"
 
 using namespace mozilla::gl;
 using namespace mozilla::gfx;
 
 namespace mozilla {
 namespace layers {
+
+CanvasLayerD3D10::CanvasLayerD3D10(LayerManagerD3D10 *aManager)
+  : CanvasLayer(aManager, nullptr)
+  , LayerD3D10(aManager)
+  , mDataIsPremultiplied(false)
+  , mNeedsYFlip(false)
+  , mHasAlpha(true)
+{
+    mImplData = static_cast<LayerD3D10*>(this);
+    mForceReadback = Preferences::GetBool("webgl.force-layers-readback", false);
+}
 
 CanvasLayerD3D10::~CanvasLayerD3D10()
 {
@@ -47,9 +59,11 @@ CanvasLayerD3D10::Initialize(const Data& aData)
 
     SurfaceFactory_GL* factory = nullptr;
     if (!mForceReadback) {
-      factory = SurfaceFactory_ANGLEShareHandle::Create(mGLContext,
-                                                        device(),
-                                                        screen->Caps());
+      if (mGLContext->IsANGLE()) {
+        factory = SurfaceFactory_ANGLEShareHandle::Create(mGLContext,
+                                                          device(),
+                                                          screen->Caps());
+      }
     }
 
     if (factory) {
@@ -59,7 +73,7 @@ CanvasLayerD3D10::Initialize(const Data& aData)
     mDrawTarget = aData.mDrawTarget;
     mNeedsYFlip = false;
     mDataIsPremultiplied = true;
-    void *texture = mDrawTarget->GetNativeSurface(NATIVE_SURFACE_D3D10_TEXTURE);
+    void *texture = mDrawTarget->GetNativeSurface(NativeSurfaceType::D3D10_TEXTURE);
 
     if (texture) {
       mTexture = static_cast<ID3D10Texture2D*>(texture);
@@ -68,7 +82,7 @@ CanvasLayerD3D10::Initialize(const Data& aData)
                    "CanvasLayer can't have both surface and WebGLContext/Surface");
 
       mBounds.SetRect(0, 0, aData.mSize.width, aData.mSize.height);
-      device()->CreateShaderResourceView(mTexture, NULL, getter_AddRefs(mSRView));
+      device()->CreateShaderResourceView(mTexture, nullptr, getter_AddRefs(mSRView));
       return;
     } 
     
@@ -81,14 +95,14 @@ CanvasLayerD3D10::Initialize(const Data& aData)
 
   mBounds.SetRect(0, 0, aData.mSize.width, aData.mSize.height);
 
-  if (mSurface && mSurface->GetType() == gfxASurface::SurfaceTypeD2D) {
+  if (mSurface && mSurface->GetType() == gfxSurfaceType::D2D) {
     void *data = mSurface->GetData(&gKeyD3D10Texture);
     if (data) {
       mTexture = static_cast<ID3D10Texture2D*>(data);
       mIsD2DTexture = true;
-      device()->CreateShaderResourceView(mTexture, NULL, getter_AddRefs(mSRView));
+      device()->CreateShaderResourceView(mTexture, nullptr, getter_AddRefs(mSRView));
       mHasAlpha =
-        mSurface->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA;
+        mSurface->GetContentType() == gfxContentType::COLOR_ALPHA;
       return;
     }
   }
@@ -100,13 +114,13 @@ CanvasLayerD3D10::Initialize(const Data& aData)
   desc.Usage = D3D10_USAGE_DYNAMIC;
   desc.CPUAccessFlags = D3D10_CPU_ACCESS_WRITE;
 
-  HRESULT hr = device()->CreateTexture2D(&desc, NULL, getter_AddRefs(mTexture));
+  HRESULT hr = device()->CreateTexture2D(&desc, nullptr, getter_AddRefs(mTexture));
   if (FAILED(hr)) {
     NS_WARNING("Failed to create texture for CanvasLayer!");
     return;
   }
 
-  device()->CreateShaderResourceView(mTexture, NULL, getter_AddRefs(mUploadSRView));
+  device()->CreateShaderResourceView(mTexture, nullptr, getter_AddRefs(mUploadSRView));
 }
 
 void
@@ -147,21 +161,20 @@ CanvasLayerD3D10::UpdateSurface()
           return;
         }
 
-        gfxImageSurface* frameData = shareSurf->GetData();
-        // Scope for gfxContext, so it's destroyed before Unmap.
+        DataSourceSurface* frameData = shareSurf->GetData();
+        // Scope for DrawTarget, so it's destroyed before Unmap.
         {
-          nsRefPtr<gfxImageSurface> mapSurf = 
-              new gfxImageSurface((uint8_t*)map.pData,
-                                  shareSurf->Size(),
-                                  map.RowPitch,
-                                  gfxASurface::ImageFormatARGB32);
+          IntSize boundsSize(mBounds.width, mBounds.height);
+          RefPtr<DrawTarget> mapDt = Factory::CreateDrawTargetForData(BackendType::CAIRO,
+                                                                      (uint8_t*)map.pData,
+                                                                      boundsSize,
+                                                                      map.RowPitch,
+                                                                      SurfaceFormat::B8G8R8A8);
 
-          nsRefPtr<gfxContext> ctx = new gfxContext(mapSurf);
-          ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
-          ctx->SetSource(frameData);
-          ctx->Paint();
-
-          mapSurf->Flush();
+          Rect drawRect(0, 0, frameData->GetSize().width, frameData->GetSize().height);
+          mapDt->DrawSurface(frameData, drawRect, drawRect,
+                             DrawSurfaceOptions(),  DrawOptions(1.0F, CompositionOp::OP_SOURCE));
+          mapDt->Flush();
         }
 
         mTexture->Unmap(0);
@@ -170,8 +183,7 @@ CanvasLayerD3D10::UpdateSurface()
       }
 
       default:
-        MOZ_NOT_REACHED("Unhandled SharedSurfaceType.");
-        return;
+        MOZ_CRASH("Unhandled SharedSurfaceType.");
     }
   } else if (mSurface) {
     RECT r;
@@ -193,7 +205,7 @@ CanvasLayerD3D10::UpdateSurface()
     dstSurface = new gfxImageSurface((unsigned char*)map.pData,
                                      gfxIntSize(mBounds.width, mBounds.height),
                                      map.RowPitch,
-                                     gfxASurface::ImageFormatARGB32);
+                                     gfxImageFormat::ARGB32);
     nsRefPtr<gfxContext> ctx = new gfxContext(dstSurface);
     ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
     ctx->SetSource(mSurface);
@@ -229,7 +241,7 @@ CanvasLayerD3D10::RenderLayer()
   shaderFlags |= mDataIsPremultiplied
                 ? SHADER_PREMUL : SHADER_NON_PREMUL | SHADER_RGBA;
   shaderFlags |= mHasAlpha ? SHADER_RGBA : SHADER_RGB;
-  shaderFlags |= mFilter == gfxPattern::FILTER_NEAREST
+  shaderFlags |= mFilter == GraphicsFilter::FILTER_NEAREST
                 ? SHADER_POINT : SHADER_LINEAR;
   ID3D10EffectTechnique* technique = SelectShader(shaderFlags);
 

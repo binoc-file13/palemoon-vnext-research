@@ -8,13 +8,15 @@
 
 #include "AudioSegment.h"
 #include "mozilla/dom/AudioNode.h"
-#include "mozilla/dom/AudioParam.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/Mutex.h"
 
 namespace mozilla {
 
 namespace dom {
 struct ThreeDPoint;
+class AudioParamTimeline;
+class DelayNodeEngine;
 }
 
 class AudioNodeStream;
@@ -72,6 +74,11 @@ public:
    */
   void Clear() { mContents.Clear(); }
 
+  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
+  {
+    return mContents.SizeOfExcludingThis(aMallocSizeOf);
+  }
+
 private:
   AutoFallibleTArray<Storage,2> mContents;
 };
@@ -86,6 +93,14 @@ void AllocateAudioBlock(uint32_t aChannelCount, AudioChunk* aChunk);
  * aChunk must have been allocated by AllocateAudioBlock.
  */
 void WriteZeroesToAudioBlock(AudioChunk* aChunk, uint32_t aStart, uint32_t aLength);
+
+/**
+ * Copy with scale. aScale == 1.0f should be optimized.
+ */
+void AudioBufferCopyWithScale(const float* aInput,
+                              float aScale,
+                              float* aOutput,
+                              uint32_t aSize);
 
 /**
  * Pointwise multiply-add operation. aScale == 1.0f should be optimized.
@@ -127,17 +142,20 @@ void BufferComplexMultiply(const float* aInput,
                            uint32_t aSize);
 
 /**
+ * Vector maximum element magnitude ( max(abs(aInput)) ).
+ */
+float AudioBufferPeakValue(const float* aInput, uint32_t aSize);
+
+/**
  * In place gain. aScale == 1.0f should be optimized.
  */
-void AudioBufferInPlaceScale(float aBlock[WEBAUDIO_BLOCK_SIZE],
-                             uint32_t aChannelCount,
-                             float aScale);
+void AudioBlockInPlaceScale(float aBlock[WEBAUDIO_BLOCK_SIZE],
+                            float aScale);
 
 /**
  * In place gain. aScale == 1.0f should be optimized.
  */
 void AudioBufferInPlaceScale(float* aBlock,
-                             uint32_t aChannelCount,
                              float aScale,
                              uint32_t aSize);
 
@@ -192,6 +210,8 @@ public:
     MOZ_ASSERT(!mNode, "The node reference must be already cleared");
     MOZ_COUNT_DTOR(AudioNodeEngine);
   }
+
+  virtual dom::DelayNodeEngine* AsDelayNodeEngine() { return nullptr; }
 
   virtual void SetStreamTimeParameter(uint32_t aIndex, TrackTicks aParam)
   {

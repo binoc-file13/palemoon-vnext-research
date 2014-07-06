@@ -17,7 +17,7 @@
 
 using namespace mozilla;
 
-NS_IMPL_THREADSAFE_ISUPPORTS2(TimerThread, nsIRunnable, nsIObserver)
+NS_IMPL_ISUPPORTS2(TimerThread, nsIRunnable, nsIObserver)
 
 TimerThread::TimerThread() :
   mInitInProgress(0),
@@ -84,7 +84,7 @@ nsresult TimerThread::Init()
     return NS_OK;
   }
 
-  if (PR_ATOMIC_SET(&mInitInProgress, 1) == 0) {
+  if (mInitInProgress.exchange(1) == 0) {
     // We hold on to mThread to keep the thread alive.
     nsresult rv = NS_NewThread(getter_AddRefs(mThread), this);
     if (NS_FAILED(rv)) {
@@ -159,10 +159,22 @@ nsresult TimerThread::Shutdown()
   return NS_OK;
 }
 
+#ifdef MOZ_NUWA_PROCESS
+#include "ipc/Nuwa.h"
+#endif
+
 /* void Run(); */
 NS_IMETHODIMP TimerThread::Run()
 {
   PR_SetCurrentThreadName("Timer");
+
+#ifdef MOZ_NUWA_PROCESS
+  if (IsNuwaProcess()) {
+    NS_ASSERTION(NuwaMarkCurrentThread != nullptr,
+                 "NuwaMarkCurrentThread is undefined!");
+    NuwaMarkCurrentThread(nullptr, nullptr);
+  }
+#endif
 
   MonitorAutoLock lock(mMonitor);
 
@@ -211,9 +223,8 @@ NS_IMETHODIMP TimerThread::Run()
           // must be racing with us, blocked in gThread->RemoveTimer waiting
           // for TimerThread::mMonitor, under nsTimerImpl::Release.
 
-          nsRefPtr<nsTimerImpl> timerRef(timer);
+          NS_ADDREF(timer);
           RemoveTimerInternal(timer);
-          timer = nullptr;
 
           {
             // We release mMonitor around the Fire call to avoid deadlock.
@@ -223,21 +234,16 @@ NS_IMETHODIMP TimerThread::Run()
             if (PR_LOG_TEST(GetTimerLog(), PR_LOG_DEBUG)) {
               PR_LOG(GetTimerLog(), PR_LOG_DEBUG,
                      ("Timer thread woke up %fms from when it was supposed to\n",
-                      fabs((now - timerRef->mTimeout).ToMilliseconds())));
+                      fabs((now - timer->mTimeout).ToMilliseconds())));
             }
 #endif
 
             // We are going to let the call to PostTimerEvent here handle the
             // release of the timer so that we don't end up releasing the timer
             // on the TimerThread instead of on the thread it targets.
-            timerRef = nsTimerImpl::PostTimerEvent(timerRef.forget());
-
-            if (timerRef) {
-              // We got our reference back due to an error.
-              // Unhook the nsRefPtr, and release manually so we can get the
-              // refcount.
-              nsrefcnt rc = timerRef.forget().get()->Release();
-              (void)rc;
+            if (NS_FAILED(timer->PostTimerEvent())) {
+              nsrefcnt rc;
+              NS_RELEASE2(timer, rc);
             
               // The nsITimer interface requires that its users keep a reference
               // to the timers they use while those timers are initialized but
@@ -252,6 +258,7 @@ NS_IMETHODIMP TimerThread::Run()
               // preventing this situation from occurring.
               MOZ_ASSERT(rc != 0, "destroyed timer off its target thread!");
             }
+            timer = nullptr;
           }
 
           if (mShutdown)
@@ -416,7 +423,7 @@ void TimerThread::DoAfterSleep()
 
 /* void observe (in nsISupports aSubject, in string aTopic, in wstring aData); */
 NS_IMETHODIMP
-TimerThread::Observe(nsISupports* /* aSubject */, const char *aTopic, const PRUnichar* /* aData */)
+TimerThread::Observe(nsISupports* /* aSubject */, const char *aTopic, const char16_t* /* aData */)
 {
   if (strcmp(aTopic, "sleep_notification") == 0 ||
       strcmp(aTopic, "suspend_process_notification") == 0)

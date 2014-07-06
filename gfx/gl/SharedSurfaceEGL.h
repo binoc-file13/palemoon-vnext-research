@@ -17,16 +17,17 @@ namespace mozilla {
 namespace gl {
 
 class GLContext;
+class TextureGarbageBin;
 
 class SharedSurface_EGLImage
     : public SharedSurface_GL
 {
 public:
     static SharedSurface_EGLImage* Create(GLContext* prodGL,
-                                                  const GLFormats& formats,
-                                                  const gfxIntSize& size,
-                                                  bool hasAlpha,
-                                                  EGLContext context);
+                                          const GLFormats& formats,
+                                          const gfx::IntSize& size,
+                                          bool hasAlpha,
+                                          EGLContext context);
 
     static SharedSurface_EGLImage* Cast(SharedSurface* surf) {
         MOZ_ASSERT(surf->Type() == SharedSurfaceType::EGLImageShare);
@@ -39,7 +40,7 @@ protected:
     GLLibraryEGL* const mEGL;
     const GLFormats mFormats;
     GLuint mProdTex;
-    nsRefPtr<gfxImageSurface> mPixels;
+    RefPtr<gfx::DataSourceSurface> mPixels;
     GLuint mProdTexForPipe; // Moves to mProdTex when mPipeActive becomes true.
     EGLImage mImage;
     GLContext* mCurConsGL;
@@ -52,28 +53,10 @@ protected:
 
     SharedSurface_EGLImage(GLContext* gl,
                            GLLibraryEGL* egl,
-                           const gfxIntSize& size,
+                           const gfx::IntSize& size,
                            bool hasAlpha,
                            const GLFormats& formats,
-                           GLuint prodTex)
-        : SharedSurface_GL(SharedSurfaceType::EGLImageShare,
-                           AttachmentType::GLTexture,
-                           gl,
-                           size,
-                           hasAlpha)
-        , mMutex("SharedSurface_EGLImage mutex")
-        , mEGL(egl)
-        , mFormats(formats)
-        , mProdTex(prodTex)
-        , mProdTexForPipe(0)
-        , mImage(0)
-        , mCurConsGL(nullptr)
-        , mConsTex(0)
-        , mSync(0)
-        , mPipeFailed(false)
-        , mPipeComplete(false)
-        , mPipeActive(false)
-    {}
+                           GLuint prodTex);
 
     EGLDisplay Display() const;
 
@@ -99,7 +82,7 @@ public:
     GLuint AcquireConsumerTexture(GLContext* consGL);
 
     // Will be void if AcquireConsumerTexture returns non-zero.
-    gfxImageSurface* GetPixels() const;
+    gfx::DataSourceSurface* GetPixels() const;
 };
 
 
@@ -123,7 +106,7 @@ protected:
     {}
 
 public:
-    virtual SharedSurface* CreateShared(const gfxIntSize& size) {
+    virtual SharedSurface* CreateShared(const gfx::IntSize& size) {
         bool hasAlpha = mReadCaps.alpha;
         return SharedSurface_EGLImage::Create(mGL, mFormats, size, hasAlpha, mContext);
     }

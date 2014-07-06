@@ -6,12 +6,35 @@
 #ifndef MOZILLA_GFX_TILEDCONTENTCLIENT_H
 #define MOZILLA_GFX_TILEDCONTENTCLIENT_H
 
-#include "mozilla/layers/ContentClient.h"
-#include "TiledLayerBuffer.h"
-#include "gfxPlatform.h"
+#include <stddef.h>                     // for size_t
+#include <stdint.h>                     // for uint16_t
+#include <algorithm>                    // for swap
+#include "Layers.h"                     // for LayerManager, etc
+#include "TiledLayerBuffer.h"           // for TiledLayerBuffer
+#include "Units.h"                      // for CSSPoint
+#include "gfx3DMatrix.h"                // for gfx3DMatrix
+#include "gfxTypes.h"
+#include "mozilla/Attributes.h"         // for MOZ_OVERRIDE
+#include "mozilla/RefPtr.h"             // for RefPtr
+#include "mozilla/layers/CompositableClient.h"  // for CompositableClient
+#include "mozilla/layers/CompositorTypes.h"  // for TextureInfo, etc
+#include "mozilla/layers/TextureClient.h"
+#include "mozilla/mozalloc.h"           // for operator delete
+#include "nsAutoPtr.h"                  // for nsRefPtr
+#include "nsPoint.h"                    // for nsIntPoint
+#include "nsRect.h"                     // for nsIntRect
+#include "nsRegion.h"                   // for nsIntRegion
+#include "nsTArray.h"                   // for nsTArray, nsTArray_Impl, etc
+#include "nsTraceRefcnt.h"              // for MOZ_COUNT_DTOR
+#include "mozilla/layers/ISurfaceAllocator.h"
+#include "gfxReusableSurfaceWrapper.h"
+
+class gfxImageSurface;
 
 namespace mozilla {
 namespace layers {
+
+class BasicTileDescriptor;
 
 /**
  * Represent a single tile in tiled buffer. The buffer keeps tiles,
@@ -23,38 +46,42 @@ namespace layers {
  * Ideal place to store per tile debug information.
  */
 struct BasicTiledLayerTile {
-  RefPtr<TextureClientTile> mTextureClient;
+  RefPtr<DeprecatedTextureClientTile> mDeprecatedTextureClient;
 #ifdef GFX_TILEDLAYER_DEBUG_OVERLAY
   TimeStamp        mLastUpdate;
 #endif
 
   // Placeholder
   BasicTiledLayerTile()
-    : mTextureClient(nullptr)
+    : mDeprecatedTextureClient(nullptr)
+  {}
+
+  BasicTiledLayerTile(DeprecatedTextureClientTile* aTextureClient)
+    : mDeprecatedTextureClient(aTextureClient)
   {}
 
   BasicTiledLayerTile(const BasicTiledLayerTile& o) {
-    mTextureClient = o.mTextureClient;
+    mDeprecatedTextureClient = o.mDeprecatedTextureClient;
 #ifdef GFX_TILEDLAYER_DEBUG_OVERLAY
     mLastUpdate = o.mLastUpdate;
 #endif
   }
   BasicTiledLayerTile& operator=(const BasicTiledLayerTile& o) {
     if (this == &o) return *this;
-    mTextureClient = o.mTextureClient;
+    mDeprecatedTextureClient = o.mDeprecatedTextureClient;
 #ifdef GFX_TILEDLAYER_DEBUG_OVERLAY
     mLastUpdate = o.mLastUpdate;
 #endif
     return *this;
   }
   bool operator== (const BasicTiledLayerTile& o) const {
-    return mTextureClient == o.mTextureClient;
+    return mDeprecatedTextureClient == o.mDeprecatedTextureClient;
   }
   bool operator!= (const BasicTiledLayerTile& o) const {
-    return mTextureClient != o.mTextureClient;
+    return mDeprecatedTextureClient != o.mDeprecatedTextureClient;
   }
 
-  bool IsPlaceholderTile() { return mTextureClient == nullptr; }
+  bool IsPlaceholderTile() { return mDeprecatedTextureClient == nullptr; }
 
   void ReadUnlock() {
     GetSurface()->ReadUnlock();
@@ -63,8 +90,11 @@ struct BasicTiledLayerTile {
     GetSurface()->ReadLock();
   }
 
+  TileDescriptor GetTileDescriptor();
+  static BasicTiledLayerTile OpenDescriptor(ISurfaceAllocator *aAllocator, const TileDescriptor& aDesc);
+
   gfxReusableSurfaceWrapper* GetSurface() {
-    return mTextureClient->GetReusableSurfaceWrapper();
+    return mDeprecatedTextureClient->GetReusableSurfaceWrapper();
   }
 };
 
@@ -73,19 +103,111 @@ struct BasicTiledLayerTile {
  * doesn't need to be recalculated on every repeated transaction.
  */
 struct BasicTiledLayerPaintData {
-  CSSPoint mScrollOffset;
-  CSSPoint mLastScrollOffset;
-  gfx3DMatrix mTransformScreenToLayer;
-  nsIntRect mLayerCriticalDisplayPort;
-  gfxSize mResolution;
-  nsIntRect mCompositionBounds;
+  /*
+   * The scroll offset of the content from the nearest ancestor layer that
+   * represents scrollable content with a display port set.
+   */
+  ScreenPoint mScrollOffset;
+
+  /*
+   * The scroll offset of the content from the nearest ancestor layer that
+   * represents scrollable content with a display port set, for the last
+   * layer update transaction.
+   */
+  ScreenPoint mLastScrollOffset;
+
+  /*
+   * The transform matrix to go from Screen units to transformed LayoutDevice
+   * units.
+   */
+  gfx3DMatrix mTransformScreenToLayout;
+
+  /*
+   * The critical displayport of the content from the nearest ancestor layer
+   * that represents scrollable content with a display port set. Empty if a
+   * critical displayport is not set.
+   *
+   * This is in transformed LayoutDevice coordinates, but is stored as an
+   * nsIntRect for convenience when intersecting with the layer's mValidRegion.
+   */
+  nsIntRect mLayoutCriticalDisplayPort;
+
+  /*
+   * The render resolution of the document that the content this layer
+   * represents is in.
+   */
+  CSSToScreenScale mResolution;
+
+  /*
+   * The composition bounds of the primary scrollable layer, in transformed
+   * layout device coordinates. This is used to make sure that tiled updates to
+   * regions that are visible to the user are grouped coherently.
+   */
+  LayoutDeviceRect mCompositionBounds;
+
+  /*
+   * Low precision updates are always executed a tile at a time in repeated
+   * transactions. This counter is set to 1 on the first transaction of a low
+   * precision update, and incremented for each subsequent transaction.
+   */
   uint16_t mLowPrecisionPaintCount;
+
+  /*
+   * Whether this is the first time this layer is painting
+   */
   bool mFirstPaint : 1;
+
+  /*
+   * Whether there is further work to complete this paint. This is used to
+   * determine whether or not to repeat the transaction when painting
+   * progressively.
+   */
   bool mPaintFinished : 1;
 };
 
 class ClientTiledThebesLayer;
 class ClientLayerManager;
+
+class SharedFrameMetricsHelper
+{
+public:
+  SharedFrameMetricsHelper();
+  ~SharedFrameMetricsHelper();
+
+  /**
+   * This is called by the BasicTileLayer to determine if it is still interested
+   * in the update of this display-port to continue. We can return true here
+   * to abort the current update and continue with any subsequent ones. This
+   * is useful for slow-to-render pages when the display-port starts lagging
+   * behind enough that continuing to draw it is wasted effort.
+   */
+  bool UpdateFromCompositorFrameMetrics(ContainerLayer* aLayer,
+                                        bool aHasPendingNewThebesContent,
+                                        bool aLowPrecision,
+                                        ScreenRect& aCompositionBounds,
+                                        CSSToScreenScale& aZoom);
+
+  /**
+   * When a shared FrameMetrics can not be found for a given layer,
+   * this function is used to find the first non-empty composition bounds
+   * by traversing up the layer tree.
+   */
+  void FindFallbackContentFrameMetrics(ContainerLayer* aLayer,
+                                       ScreenRect& aCompositionBounds,
+                                       CSSToScreenScale& aZoom);
+  /**
+   * Determines if the compositor's upcoming composition bounds has fallen
+   * outside of the contents display port. If it has then the compositor
+   * will start to checker board. Checker boarding is when the compositor
+   * tries to composite a tile and it is not available. Historically
+   * a tile with a checker board pattern was used. Now a blank tile is used.
+   */
+  bool AboutToCheckerboard(const FrameMetrics& aContentMetrics,
+                           const FrameMetrics& aCompositorMetrics);
+private:
+  bool mLastProgressiveUpdateWasLowPrecision;
+  bool mProgressiveUpdateWasInDanger;
+};
 
 /**
  * Provide an instance of TiledLayerBuffer backed by image surfaces.
@@ -100,12 +222,39 @@ class BasicTiledLayerBuffer
 
 public:
   BasicTiledLayerBuffer(ClientTiledThebesLayer* aThebesLayer,
-                        ClientLayerManager* aManager);
+                        ClientLayerManager* aManager,
+                        SharedFrameMetricsHelper* aHelper);
   BasicTiledLayerBuffer()
     : mThebesLayer(nullptr)
     , mManager(nullptr)
     , mLastPaintOpaque(false)
+    , mSharedFrameMetricsHelper(nullptr)
   {}
+
+  BasicTiledLayerBuffer(ISurfaceAllocator* aAllocator,
+                        const nsIntRegion& aValidRegion,
+                        const nsIntRegion& aPaintedRegion,
+                        const InfallibleTArray<TileDescriptor>& aTiles,
+                        int aRetainedWidth,
+                        int aRetainedHeight,
+                        float aResolution,
+                        SharedFrameMetricsHelper* aHelper)
+  {
+    mSharedFrameMetricsHelper = aHelper;
+    mValidRegion = aValidRegion;
+    mPaintedRegion = aPaintedRegion;
+    mRetainedWidth = aRetainedWidth;
+    mRetainedHeight = aRetainedHeight;
+    mResolution = aResolution;
+
+    for(size_t i = 0; i < aTiles.Length(); i++) {
+      if (aTiles[i].type() == TileDescriptor::TPlaceholderTileDescriptor) {
+        mRetainedTiles.AppendElement(GetPlaceholderTile());
+      } else {
+        mRetainedTiles.AppendElement(BasicTiledLayerTile::OpenDescriptor(aAllocator, aTiles[i]));
+      }
+    }
+  }
 
   void PaintThebes(const nsIntRegion& aNewValidRegion,
                    const nsIntRegion& aPaintRegion,
@@ -126,14 +275,14 @@ public:
     }
   }
 
-  const gfxSize& GetFrameResolution() { return mFrameResolution; }
-  void SetFrameResolution(const gfxSize& aResolution) { mFrameResolution = aResolution; }
+  const CSSToScreenScale& GetFrameResolution() { return mFrameResolution; }
+  void SetFrameResolution(const CSSToScreenScale& aResolution) { mFrameResolution = aResolution; }
 
   bool HasFormatChanged() const;
 
   /**
    * Performs a progressive update of a given tiled buffer.
-   * See ComputeProgressiveUpdateRegion above for parameter documentation.
+   * See ComputeProgressiveUpdateRegion below for parameter documentation.
    */
   bool ProgressiveUpdate(nsIntRegion& aValidRegion,
                          nsIntRegion& aInvalidRegion,
@@ -142,14 +291,11 @@ public:
                          LayerManager::DrawThebesLayerCallback aCallback,
                          void* aCallbackData);
 
-  /**
-   * Copy this buffer duplicating the texture hosts under the tiles
-   * XXX This should go. It is a hack because we need to keep the
-   * surface wrappers alive whilst they are locked by the compositor.
-   * Once we properly implement the texture host/client architecture
-   * for tiled layers we shouldn't need this.
-   */
-  BasicTiledLayerBuffer DeepCopy() const;
+  SurfaceDescriptorTiles GetSurfaceDescriptorTiles();
+
+  static BasicTiledLayerBuffer OpenDescriptor(ISurfaceAllocator* aAllocator,
+                                              const SurfaceDescriptorTiles& aDescriptor,
+                                              SharedFrameMetricsHelper* aHelper);
 
 protected:
   BasicTiledLayerTile ValidateTile(BasicTiledLayerTile aTile,
@@ -171,17 +317,19 @@ protected:
   BasicTiledLayerTile GetPlaceholderTile() const { return BasicTiledLayerTile(); }
 
 private:
-  gfxASurface::gfxContentType GetContentType() const;
+  gfxContentType GetContentType() const;
   ClientTiledThebesLayer* mThebesLayer;
   ClientLayerManager* mManager;
   LayerManager::DrawThebesLayerCallback mCallback;
   void* mCallbackData;
-  gfxSize mFrameResolution;
+  CSSToScreenScale mFrameResolution;
   bool mLastPaintOpaque;
 
   // The buffer we use when UseSinglePaintBuffer() above is true.
   nsRefPtr<gfxImageSurface>     mSinglePaintBuffer;
+  RefPtr<gfx::DrawTarget>       mSinglePaintDrawTarget;
   nsIntPoint                    mSinglePaintBufferOffset;
+  SharedFrameMetricsHelper*  mSharedFrameMetricsHelper;
 
   BasicTiledLayerTile ValidateTileInternal(BasicTiledLayerTile aTile,
                                            const nsIntPoint& aTileOrigin,
@@ -198,10 +346,6 @@ private:
    * current transaction.
    * aRegionToPaint will be filled with the region to update. This may be empty,
    * which indicates that there is no more work to do.
-   * aTransform is the transform required to convert from screen-space to
-   * layer-space.
-   * aScrollOffset is the current scroll offset of the primary scrollable layer.
-   * aResolution is the render resolution of the layer.
    * aIsRepeated should be true if this function has already been called during
    * this transaction.
    *
@@ -244,6 +388,7 @@ public:
   void LockCopyAndWrite(TiledBufferType aType);
 
 private:
+  SharedFrameMetricsHelper mSharedFrameMetricsHelper;
   BasicTiledLayerBuffer mTiledBuffer;
   BasicTiledLayerBuffer mLowPrecisionTiledBuffer;
 };

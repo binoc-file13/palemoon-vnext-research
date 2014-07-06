@@ -55,10 +55,12 @@
 
     <ul id="aboutLinks">
       <div class="top-border"></div>
+      <li><a id="faqURL">&aboutPage.faq.label;</a></li>
       <li><a id="supportURL">&aboutPage.support.label;</a></li>
+      <li><a id="privacyURL">&aboutPage.privacyPolicy.label;</a></li>
       <li><a href="about:rights">&aboutPage.rights.label;</a></li>
       <li><a id="releaseNotesURL">&aboutPage.relNotes.label;</a></li>
-      <!-- <li><a id="creditsURL">&aboutPage.credits.label;</a></li> -->
+      <li><a id="creditsURL">&aboutPage.credits.label;</a></li>
       <li><a href="about:license">&aboutPage.license.label;</a></li>
       <div class="bottom-border"></div>
     </ul>
@@ -143,20 +145,17 @@
       function checkForUpdates() {
         showCheckingMessage();
 
-        let bridge = Cc["@mozilla.org/android/bridge;1"].getService(Ci.nsIAndroidBridge);
-        bridge.handleGeckoMessage(JSON.stringify({ type: "Update:Check" }));
+        Services.androidBridge.handleGeckoMessage(JSON.stringify({ type: "Update:Check" }));
       }
 
       function downloadUpdate() {
-        let bridge = Cc["@mozilla.org/android/bridge;1"].getService(Ci.nsIAndroidBridge);
-        bridge.handleGeckoMessage(JSON.stringify({ type: "Update:Download" }));
+        Services.androidBridge.handleGeckoMessage(JSON.stringify({ type: "Update:Download" }));
       }
 
       function installUpdate() {
         showCheckAction();
 
-        let bridge = Cc["@mozilla.org/android/bridge;1"].getService(Ci.nsIAndroidBridge);
-        bridge.handleGeckoMessage(JSON.stringify({ type: "Update:Install" }));
+        Services.androidBridge.handleGeckoMessage(JSON.stringify({ type: "Update:Install" }));
       }
 
       let updateLink = document.getElementById("updateLink");

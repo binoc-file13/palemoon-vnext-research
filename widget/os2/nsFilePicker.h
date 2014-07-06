@@ -49,18 +49,16 @@ public:
 
 protected:
   /* method from nsBaseFilePicker */
-  virtual void InitNative(nsIWidget *aParent, const nsAString& aTitle,
-                          int16_t aMode);
+  virtual void InitNative(nsIWidget *aParent, const nsAString& aTitle);
 
 
   void GetFilterListArray(nsString& aFilterList);
   static void GetFileSystemCharset(nsCString & fileSystemCharset);
   char * ConvertToFileSystemCharset(const nsAString& inString);
-  PRUnichar * ConvertFromFileSystemCharset(const char *inString);
+  char16_t * ConvertFromFileSystemCharset(const char *inString);
 
   HWND                   mWnd;
   nsString               mTitle;
-  int16_t                mMode;
   nsCString              mFile;
   nsString               mDefault;
   nsString               mDefaultExtension;

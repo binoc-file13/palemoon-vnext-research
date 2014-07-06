@@ -10,3 +10,11 @@ EXTRA_COMPONENTS += [
     'BrowserPageThumbs.manifest',
     'PageThumbsProtocol.js',
 ]
+
+EXTRA_JS_MODULES += [
+    'BackgroundPageThumbs.jsm',
+    'PageThumbs.jsm',
+    'PageThumbsWorker.js',
+]
+
+JAR_MANIFESTS += ['jar.mn']

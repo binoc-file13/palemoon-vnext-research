@@ -12,10 +12,90 @@
 #define nsCSSProps_h___
 
 #include "nsString.h"
-#include "nsChangeHint.h"
 #include "nsCSSProperty.h"
-#include "nsStyleStruct.h"
+#include "nsStyleStructFwd.h"
 #include "nsCSSKeywords.h"
+
+// Flags for ParseVariant method
+#define VARIANT_KEYWORD         0x000001  // K
+#define VARIANT_LENGTH          0x000002  // L
+#define VARIANT_PERCENT         0x000004  // P
+#define VARIANT_COLOR           0x000008  // C eCSSUnit_*Color, eCSSUnit_Ident (e.g.  "red")
+#define VARIANT_URL             0x000010  // U
+#define VARIANT_NUMBER          0x000020  // N
+#define VARIANT_INTEGER         0x000040  // I
+#define VARIANT_ANGLE           0x000080  // G
+#define VARIANT_FREQUENCY       0x000100  // F
+#define VARIANT_TIME            0x000200  // T
+#define VARIANT_STRING          0x000400  // S
+#define VARIANT_COUNTER         0x000800  //
+#define VARIANT_ATTR            0x001000  //
+#define VARIANT_IDENTIFIER      0x002000  // D
+#define VARIANT_IDENTIFIER_NO_INHERIT 0x004000 // like above, but excluding
+// 'inherit' and 'initial'
+#define VARIANT_AUTO            0x010000  // A
+#define VARIANT_INHERIT         0x020000  // H eCSSUnit_Initial, eCSSUnit_Inherit, eCSSUnit_Unset
+#define VARIANT_NONE            0x040000  // O
+#define VARIANT_NORMAL          0x080000  // M
+#define VARIANT_SYSFONT         0x100000  // eCSSUnit_System_Font
+#define VARIANT_GRADIENT        0x200000  // eCSSUnit_Gradient
+#define VARIANT_TIMING_FUNCTION 0x400000  // cubic-bezier() and steps()
+#define VARIANT_ALL             0x800000  //
+#define VARIANT_IMAGE_RECT    0x01000000  // eCSSUnit_Function
+// This is an extra bit that says that a VARIANT_ANGLE allows unitless zero:
+#define VARIANT_ZERO_ANGLE    0x02000000  // unitless zero for angles
+#define VARIANT_CALC          0x04000000  // eCSSUnit_Calc
+#define VARIANT_ELEMENT       0x08000000  // eCSSUnit_Element
+#define VARIANT_POSITIVE_DIMENSION 0x10000000 // Only lengths greater than 0.0
+#define VARIANT_NONNEGATIVE_DIMENSION 0x20000000 // Only lengths greater than or equal to 0.0
+// Keyword used iff gfx.font_rendering.opentype_svg.enabled is true:
+#define VARIANT_OPENTYPE_SVG_KEYWORD 0x40000000
+
+// Common combinations of variants
+#define VARIANT_AL   (VARIANT_AUTO | VARIANT_LENGTH)
+#define VARIANT_LP   (VARIANT_LENGTH | VARIANT_PERCENT)
+#define VARIANT_LN   (VARIANT_LENGTH | VARIANT_NUMBER)
+#define VARIANT_AH   (VARIANT_AUTO | VARIANT_INHERIT)
+#define VARIANT_AHLP (VARIANT_AH | VARIANT_LP)
+#define VARIANT_AHI  (VARIANT_AH | VARIANT_INTEGER)
+#define VARIANT_AHK  (VARIANT_AH | VARIANT_KEYWORD)
+#define VARIANT_AHKLP (VARIANT_AHLP | VARIANT_KEYWORD)
+#define VARIANT_AHL  (VARIANT_AH | VARIANT_LENGTH)
+#define VARIANT_AHKL (VARIANT_AHK | VARIANT_LENGTH)
+#define VARIANT_HK   (VARIANT_INHERIT | VARIANT_KEYWORD)
+#define VARIANT_HKF  (VARIANT_HK | VARIANT_FREQUENCY)
+#define VARIANT_HKI  (VARIANT_HK | VARIANT_INTEGER)
+#define VARIANT_HKL  (VARIANT_HK | VARIANT_LENGTH)
+#define VARIANT_HKLP (VARIANT_HK | VARIANT_LP)
+#define VARIANT_HKLPO (VARIANT_HKLP | VARIANT_NONE)
+#define VARIANT_HL   (VARIANT_INHERIT | VARIANT_LENGTH)
+#define VARIANT_HI   (VARIANT_INHERIT | VARIANT_INTEGER)
+#define VARIANT_HLP  (VARIANT_HL | VARIANT_PERCENT)
+#define VARIANT_HLPN (VARIANT_HLP | VARIANT_NUMBER)
+#define VARIANT_HLPO (VARIANT_HLP | VARIANT_NONE)
+#define VARIANT_HTP  (VARIANT_INHERIT | VARIANT_TIME | VARIANT_PERCENT)
+#define VARIANT_HMK  (VARIANT_HK | VARIANT_NORMAL)
+#define VARIANT_HC   (VARIANT_INHERIT | VARIANT_COLOR)
+#define VARIANT_HCK  (VARIANT_HK | VARIANT_COLOR)
+#define VARIANT_HUK  (VARIANT_HK | VARIANT_URL)
+#define VARIANT_HUO  (VARIANT_INHERIT | VARIANT_URL | VARIANT_NONE)
+#define VARIANT_AHUO (VARIANT_AUTO | VARIANT_HUO)
+#define VARIANT_HPN  (VARIANT_INHERIT | VARIANT_PERCENT | VARIANT_NUMBER)
+#define VARIANT_PN   (VARIANT_PERCENT | VARIANT_NUMBER)
+#define VARIANT_ALPN (VARIANT_AL | VARIANT_PN)
+#define VARIANT_HN   (VARIANT_INHERIT | VARIANT_NUMBER)
+#define VARIANT_HON  (VARIANT_HN | VARIANT_NONE)
+#define VARIANT_HOS  (VARIANT_INHERIT | VARIANT_NONE | VARIANT_STRING)
+#define VARIANT_LPN  (VARIANT_LP | VARIANT_NUMBER)
+#define VARIANT_UK   (VARIANT_URL | VARIANT_KEYWORD)
+#define VARIANT_UO   (VARIANT_URL | VARIANT_NONE)
+#define VARIANT_ANGLE_OR_ZERO (VARIANT_ANGLE | VARIANT_ZERO_ANGLE)
+#define VARIANT_LCALC  (VARIANT_LENGTH | VARIANT_CALC)
+#define VARIANT_LPCALC (VARIANT_LCALC | VARIANT_PERCENT)
+#define VARIANT_LNCALC (VARIANT_LCALC | VARIANT_NUMBER)
+#define VARIANT_LPNCALC (VARIANT_LNCALC | VARIANT_PERCENT)
+#define VARIANT_IMAGE   (VARIANT_URL | VARIANT_NONE | VARIANT_GRADIENT | \
+                        VARIANT_IMAGE_RECT | VARIANT_ELEMENT)
 
 // Flags for the kFlagsTable bitfield (flags_ in nsCSSPropList.h)
 
@@ -80,9 +160,9 @@
 // See CSSParserImpl::ParseSingleValueProperty and comment above
 // CSS_PROPERTY_PARSE_FUNCTION (which is different).
 #define CSS_PROPERTY_VALUE_PARSER_FUNCTION        (1<<12)
-MOZ_STATIC_ASSERT((CSS_PROPERTY_PARSE_PROPERTY_MASK &
-                   CSS_PROPERTY_VALUE_PARSER_FUNCTION) == 0,
-                  "didn't leave enough room for the parse property constants");
+static_assert((CSS_PROPERTY_PARSE_PROPERTY_MASK &
+               CSS_PROPERTY_VALUE_PARSER_FUNCTION) == 0,
+              "didn't leave enough room for the parse property constants");
 
 #define CSS_PROPERTY_VALUE_RESTRICTION_MASK       (3<<13)
 // The parser (in particular, CSSParserImpl::ParseSingleValueProperty)
@@ -92,10 +172,10 @@ MOZ_STATIC_ASSERT((CSS_PROPERTY_PARSE_PROPERTY_MASK &
 // should enforce that the value of this property must be 1 or larger.
 #define CSS_PROPERTY_VALUE_AT_LEAST_ONE           (2<<13)
 
-// Does this property suppor the hashless hex color quirk in quirks mode?
+// Does this property support the hashless hex color quirk in quirks mode?
 #define CSS_PROPERTY_HASHLESS_COLOR_QUIRK         (1<<15)
 
-// Does this property suppor the unitless length quirk in quirks mode?
+// Does this property support the unitless length quirk in quirks mode?
 #define CSS_PROPERTY_UNITLESS_LENGTH_QUIRK        (1<<16)
 
 // Is this property (which must be a shorthand) really an alias?
@@ -106,6 +186,17 @@ MOZ_STATIC_ASSERT((CSS_PROPERTY_PARSE_PROPERTY_MASK &
 
 // This property is allowed in an @page rule.
 #define CSS_PROPERTY_APPLIES_TO_PAGE_RULE         (1<<19)
+
+// This property's getComputedStyle implementation requires layout to be
+// flushed.
+#define CSS_PROPERTY_GETCS_NEEDS_LAYOUT_FLUSH     (1<<20)
+
+// This property is always enabled in UA sheets.  This is meant to be used
+// together with a pref that enables the property for non-UA sheets.
+// Note that if such a property has an alias, then any use of that alias
+// in an UA sheet will still be ignored unless the pref is enabled.
+// In other words, this bit has no effect on the use of aliases.
+#define CSS_PROPERTY_ALWAYS_ENABLED_IN_UA_SHEETS  (1<<22)
 
 /**
  * Types of animatable values.
@@ -165,18 +256,30 @@ public:
   // Given a property string, return the enum value
   enum EnabledState {
     eEnabled,
+    eEnabledInUASheets,
     eAny
   };
+  // Looks up the property with name aProperty and returns its corresponding
+  // nsCSSProperty value.  If aProperty is the name of a custom property,
+  // then eCSSPropertyExtra_variable will be returned.
   static nsCSSProperty LookupProperty(const nsAString& aProperty,
                                       EnabledState aEnabled);
   static nsCSSProperty LookupProperty(const nsACString& aProperty,
                                       EnabledState aEnabled);
+  // Returns whether aProperty is a custom property name, i.e. begins with
+  // "var-" and has at least one more character.  This assumes that
+  // the CSS Variables pref has been enabled.
+  static bool IsCustomPropertyName(const nsAString& aProperty);
+  static bool IsCustomPropertyName(const nsACString& aProperty);
 
   static inline bool IsShorthand(nsCSSProperty aProperty) {
     NS_ABORT_IF_FALSE(0 <= aProperty && aProperty < eCSSProperty_COUNT,
                  "out of range");
     return (aProperty >= eCSSProperty_COUNT_no_shorthands);
   }
+
+  // Must be given a longhand property.
+  static bool IsInherited(nsCSSProperty aProperty);
 
   // Same but for @font-face descriptors
   static nsCSSFontDesc LookupFontDesc(const nsAString& aProperty);
@@ -335,6 +438,13 @@ public:
     return gPropertyEnabled[aProperty];
   }
 
+  static bool IsEnabled(nsCSSProperty aProperty, EnabledState aEnabled) {
+    return IsEnabled(aProperty) ||
+      (aEnabled == eEnabledInUASheets &&
+       PropHasFlags(aProperty, CSS_PROPERTY_ALWAYS_ENABLED_IN_UA_SHEETS)) ||
+      aEnabled == eAny;
+  }
+
 public:
 
 #define CSSPROPS_FOR_SHORTHAND_SUBPROPERTIES(iter_, prop_)                    \
@@ -359,6 +469,7 @@ public:
   static const int32_t kBackgroundRepeatKTable[];
   static const int32_t kBackgroundRepeatPartKTable[];
   static const int32_t kBackgroundSizeKTable[];
+  static const int32_t kBlendModeKTable[];
   static const int32_t kBorderCollapseKTable[];
   static const int32_t kBorderColorKTable[];
   static const int32_t kBorderImageRepeatKTable[];
@@ -371,11 +482,12 @@ public:
   static const int32_t kBoxPackKTable[];
   static const int32_t kDominantBaselineKTable[];
   static const int32_t kFillRuleKTable[];
+  static const int32_t kFilterFunctionKTable[];
   static const int32_t kImageRenderingKTable[];
   static const int32_t kShapeRenderingKTable[];
   static const int32_t kStrokeLinecapKTable[];
   static const int32_t kStrokeLinejoinKTable[];
-  static const int32_t kStrokeObjectValueKTable[];
+  static const int32_t kStrokeContextValueKTable[];
   static const int32_t kVectorEffectKTable[];
   static const int32_t kTextAnchorKTable[];
   static const int32_t kTextRenderingKTable[];
@@ -390,19 +502,21 @@ public:
   static const int32_t kContentKTable[];
   static const int32_t kCursorKTable[];
   static const int32_t kDirectionKTable[];
-  // Not const because we modify its entries when CSS prefs change.
-  static int32_t kDisplayKTable[];
+  static const int32_t kDisplayKTable[];
   static const int32_t kElevationKTable[];
   static const int32_t kEmptyCellsKTable[];
+  static const int32_t kAlignContentKTable[];
   static const int32_t kAlignItemsKTable[];
   static const int32_t kAlignSelfKTable[];
   static const int32_t kFlexDirectionKTable[];
+  static const int32_t kFlexWrapKTable[];
   static const int32_t kJustifyContentKTable[];
   static const int32_t kFloatKTable[];
   static const int32_t kFloatEdgeKTable[];
   static const int32_t kFontKTable[];
   static const int32_t kFontKerningKTable[];
   static const int32_t kFontSizeKTable[];
+  static const int32_t kFontSmoothingKTable[];
   static const int32_t kFontStretchKTable[];
   static const int32_t kFontStyleKTable[];
   static const int32_t kFontSynthesisKTable[];
@@ -415,25 +529,32 @@ public:
   static const int32_t kFontVariantNumericKTable[];
   static const int32_t kFontVariantPositionKTable[];
   static const int32_t kFontWeightKTable[];
+  static const int32_t kImageOrientationKTable[];
+  static const int32_t kImageOrientationFlipKTable[];
   static const int32_t kIMEModeKTable[];
   static const int32_t kLineHeightKTable[];
   static const int32_t kListStylePositionKTable[];
   static const int32_t kListStyleKTable[];
   static const int32_t kMaskTypeKTable[];
-  static const int32_t kObjectOpacityKTable[];
-  static const int32_t kObjectPatternKTable[];
+  static const int32_t kMathVariantKTable[];
+  static const int32_t kMathDisplayKTable[];
+  static const int32_t kContextOpacityKTable[];
+  static const int32_t kContextPatternKTable[];
   static const int32_t kOrientKTable[];
   static const int32_t kOutlineStyleKTable[];
   static const int32_t kOutlineColorKTable[];
   static const int32_t kOverflowKTable[];
   static const int32_t kOverflowSubKTable[];
+  static const int32_t kOverflowClipBoxKTable[];
   static const int32_t kPageBreakKTable[];
   static const int32_t kPageBreakInsideKTable[];
   static const int32_t kPageMarksKTable[];
   static const int32_t kPageSizeKTable[];
   static const int32_t kPitchKTable[];
   static const int32_t kPointerEventsKTable[];
-  static const int32_t kPositionKTable[];
+  // Not const because we modify its entries when the pref
+  // "layout.css.sticky.enabled" changes:
+  static int32_t kPositionKTable[];
   static const int32_t kRadialGradientShapeKTable[];
   static const int32_t kRadialGradientSizeKTable[];
   static const int32_t kRadialGradientLegacySizeKTable[];
@@ -445,13 +566,17 @@ public:
   static const int32_t kSpeechRateKTable[];
   static const int32_t kStackSizingKTable[];
   static const int32_t kTableLayoutKTable[];
-  static const int32_t kTextAlignKTable[];
-  static const int32_t kTextAlignLastKTable[];
-  static const int32_t kTextBlinkKTable[];
+  // Not const because we modify its entries when the pref
+  // "layout.css.text-align-true-value.enabled" changes:
+  static int32_t kTextAlignKTable[];
+  static int32_t kTextAlignLastKTable[];
+  static const int32_t kTextCombineHorizontalKTable[];
   static const int32_t kTextDecorationLineKTable[];
   static const int32_t kTextDecorationStyleKTable[];
+  static const int32_t kTextOrientationKTable[];
   static const int32_t kTextOverflowKTable[];
   static const int32_t kTextTransformKTable[];
+  static const int32_t kTouchActionKTable[];
   static const int32_t kTransitionTimingFunctionKTable[];
   static const int32_t kUnicodeBidiKTable[];
   static const int32_t kUserFocusKTable[];

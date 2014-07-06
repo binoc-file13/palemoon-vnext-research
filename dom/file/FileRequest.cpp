@@ -7,7 +7,6 @@
 #include "FileRequest.h"
 
 #include "DOMFileRequest.h"
-#include "nsContentUtils.h"
 #include "nsCxPusher.h"
 #include "nsEventDispatcher.h"
 #include "nsError.h"
@@ -18,7 +17,7 @@
 
 USING_FILE_NAMESPACE
 
-FileRequest::FileRequest(nsIDOMWindow* aWindow)
+FileRequest::FileRequest(nsPIDOMWindow* aWindow)
   : DOMRequest(aWindow)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
@@ -31,7 +30,7 @@ FileRequest::~FileRequest()
 
 // static
 already_AddRefed<FileRequest>
-FileRequest::Create(nsIDOMWindow* aOwner,
+FileRequest::Create(nsPIDOMWindow* aOwner,
                     LockedFile* aLockedFile,
                     bool aIsFileRequest)
 {
@@ -80,12 +79,12 @@ FileRequest::NotifyHelperCompleted(FileHelper* aFileHelper)
 
   JS::Rooted<JS::Value> result(cx);
 
-  JS::Rooted<JSObject*> global(cx, sc->GetNativeGlobal());
+  JS::Rooted<JSObject*> global(cx, sc->GetWindowProxy());
   NS_ASSERTION(global, "Failed to get global object!");
 
   JSAutoCompartment ac(cx, global);
 
-  rv = aFileHelper->GetSuccessResult(cx, result.address());
+  rv = aFileHelper->GetSuccessResult(cx, &result);
   if (NS_FAILED(rv)) {
     NS_WARNING("GetSuccessResult failed!");
   }

@@ -3,23 +3,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "nsMathMLChar.h"
 #include "mozilla/MathAlgorithms.h"
 
 #include "nsCOMPtr.h"
-#include "nsFrame.h"
+#include "nsIFrame.h"
 #include "nsPresContext.h"
 #include "nsStyleContext.h"
-#include "nsStyleConsts.h"
-#include "nsString.h"
 #include "nsUnicharUtils.h"
 #include "nsRenderingContext.h"
-#include "gfxPlatform.h"
 
 #include "mozilla/Preferences.h"
-#include "nsISupportsPrimitives.h"
-#include "nsIComponentManager.h"
 #include "nsIPersistentProperties2.h"
-#include "nsIServiceManager.h"
 #include "nsIObserverService.h"
 #include "nsIObserver.h"
 #include "nsNetUtil.h"
@@ -31,7 +26,6 @@
 #include "nsDisplayList.h"
 
 #include "nsMathMLOperators.h"
-#include "nsMathMLChar.h"
 #include <algorithm>
 
 using namespace mozilla;
@@ -39,7 +33,6 @@ using namespace mozilla;
 //#define NOISY_SEARCH 1
 
 // -----------------------------------------------------------------------------
-static const PRUnichar   kSpaceCh   = PRUnichar(' ');
 static const nsGlyphCode kNullGlyph = {{0, 0}, 0};
 typedef enum {eExtension_base, eExtension_variants, eExtension_parts}
   nsMathfontPrefExtension;
@@ -205,7 +198,7 @@ private:
   // table. Other digits map to the "external" fonts that may have been
   // specified in the MathFont Property File.
   nsString  mGlyphCache;
-  PRUnichar mCharCache;
+  char16_t mCharCache;
 };
 
 nsGlyphCode
@@ -246,7 +239,7 @@ nsGlyphTable::ElementAt(nsPresContext* aPresContext, nsMathMLChar* aChar,
   }
 
   // Update our cache if it is not associated to this character
-  PRUnichar uchar = aChar->mData[0];
+  char16_t uchar = aChar->mData[0];
   if (mCharCache != uchar) {
     // The key in the property file is interpreted as ASCII and kept
     // as such ...
@@ -269,7 +262,7 @@ nsGlyphTable::ElementAt(nsPresContext* aPresContext, nsMathMLChar* aChar,
     int32_t length = value.Length();
     int32_t i = 0; // index in value
     while (i < length) {
-      PRUnichar code = value[i];
+      char16_t code = value[i];
       ++i;
       buffer.Append(code);
       // Read the next word if we have a non-BMP character.
@@ -277,15 +270,15 @@ nsGlyphTable::ElementAt(nsPresContext* aPresContext, nsMathMLChar* aChar,
         code = value[i];
         ++i;
       } else {
-        code = PRUnichar('\0');
+        code = char16_t('\0');
       }
       buffer.Append(code);
 
       // See if an external font is needed for the code point.
       // Limit of 9 external fonts
-      PRUnichar font = 0;
-      if (i+1 < length && value[i] == PRUnichar('@') &&
-          value[i+1] >= PRUnichar('0') && value[i+1] <= PRUnichar('9')) {
+      char16_t font = 0;
+      if (i+1 < length && value[i] == char16_t('@') &&
+          value[i+1] >= char16_t('0') && value[i+1] <= char16_t('9')) {
         ++i;
         font = value[i] - '0';
         ++i;
@@ -312,7 +305,7 @@ nsGlyphTable::ElementAt(nsPresContext* aPresContext, nsMathMLChar* aChar,
   ch.code[0] = mGlyphCache.CharAt(index);
   ch.code[1] = mGlyphCache.CharAt(index + 1);
   ch.font = mGlyphCache.CharAt(index + 2);
-  return ch.code[0] == PRUnichar(0xFFFD) ? kNullGlyph : ch;
+  return ch.code[0] == char16_t(0xFFFD) ? kNullGlyph : ch;
 }
 
 bool
@@ -397,13 +390,13 @@ NS_IMPL_ISUPPORTS1(nsGlyphTableList, nsIObserver)
 // Here is the global list of applicable glyph tables that we will be using
 static nsGlyphTableList* gGlyphTableList = nullptr;
 
-static bool gInitialized = false;
+static bool gGlyphTableInitialized = false;
 
 // XPCOM shutdown observer
 NS_IMETHODIMP
 nsGlyphTableList::Observe(nsISupports*     aSubject,
                           const char* aTopic,
-                          const PRUnichar* someData)
+                          const char16_t* someData)
 {
   Finalize();
   return NS_OK;
@@ -435,7 +428,7 @@ nsGlyphTableList::Finalize()
   else
     rv = NS_ERROR_FAILURE;
 
-  gInitialized = false;
+  gGlyphTableInitialized = false;
   // our oneself will be destroyed when our |Release| is called by the observer
   return rv;
 }
@@ -494,7 +487,7 @@ nsGlyphTableList::GetGlyphTableFor(const nsAString& aFamily)
 // Given the char code and mode of stretch, retrieve the preferred extension
 // font families.
 static bool
-GetFontExtensionPref(PRUnichar aChar,
+GetFontExtensionPref(char16_t aChar,
                      nsMathfontPrefExtension aExtension, nsString& aValue)
 {
   // initialize OUT param
@@ -561,8 +554,8 @@ MathFontEnumCallback(const nsString& aFamily, bool aGeneric, void *aData)
 static nsresult
 InitGlobals(nsPresContext* aPresContext)
 {
-  NS_ASSERTION(!gInitialized, "Error -- already initialized");
-  gInitialized = true;
+  NS_ASSERTION(!gGlyphTableInitialized, "Error -- already initialized");
+  gGlyphTableInitialized = true;
 
   // Allocate the placeholders for the preferred parts and variants
   nsresult rv = NS_ERROR_OUT_OF_MEMORY;
@@ -613,6 +606,12 @@ InitGlobals(nsPresContext* aPresContext)
 // -----------------------------------------------------------------------------
 // And now the implementation of nsMathMLChar
 
+nsMathMLChar::~nsMathMLChar()
+{
+  MOZ_COUNT_DTOR(nsMathMLChar);
+  mStyleContext->Release();
+}
+
 nsStyleContext*
 nsMathMLChar::GetStyleContext() const
 {
@@ -638,7 +637,7 @@ void
 nsMathMLChar::SetData(nsPresContext* aPresContext,
                       nsString&       aData)
 {
-  if (!gInitialized) {
+  if (!gGlyphTableInitialized) {
     InitGlobals(aPresContext);
   }
   mData = aData;
@@ -845,16 +844,16 @@ AddFallbackFonts(nsAString& aFontName, const nsAString& aFallbackFamilies)
     return;
   }
 
-  static const PRUnichar kSingleQuote  = PRUnichar('\'');
-  static const PRUnichar kDoubleQuote  = PRUnichar('\"');
-  static const PRUnichar kComma        = PRUnichar(',');
+  static const char16_t kSingleQuote  = char16_t('\'');
+  static const char16_t kDoubleQuote  = char16_t('\"');
+  static const char16_t kComma        = char16_t(',');
 
-  const PRUnichar *p_begin, *p_end;
+  const char16_t *p_begin, *p_end;
   aFontName.BeginReading(p_begin);
   aFontName.EndReading(p_end);
 
-  const PRUnichar *p = p_begin;
-  const PRUnichar *p_name = nullptr;
+  const char16_t *p = p_begin;
+  const char16_t *p_name = nullptr;
   while (p < p_end) {
     while (nsCRT::IsAsciiSpace(*p))
       if (++p == p_end)
@@ -863,7 +862,7 @@ AddFallbackFonts(nsAString& aFontName, const nsAString& aFallbackFamilies)
     p_name = p;
     if (*p == kSingleQuote || *p == kDoubleQuote) {
       // quoted font family
-      PRUnichar quoteMark = *p;
+      char16_t quoteMark = *p;
       if (++p == p_end)
         goto insert;
 
@@ -877,7 +876,7 @@ AddFallbackFonts(nsAString& aFontName, const nsAString& aFallbackFamilies)
 
     } else {
       // unquoted font family
-      const PRUnichar *nameStart = p;
+      const char16_t *nameStart = p;
       while (++p != p_end && *p != kComma)
         /* nothing */ ;
 
@@ -925,6 +924,7 @@ SetFontFamily(nsStyleContext*      aStyleContext,
     aRenderingContext.DeviceContext()->GetMetricsFor(font,
       aStyleContext->StyleFont()->mLanguage,
       aStyleContext->PresContext()->GetUserFontSet(),
+      aStyleContext->PresContext()->GetTextPerfMetrics(),
       *getter_AddRefs(fm));
     // Set the font if it is an unicode table
     // or if the same family name has been found
@@ -1251,7 +1251,7 @@ nsMathMLChar::StretchEnumContext::EnumCallback(const nsString& aFamily,
   nsStyleContext *sc = context->mChar->mStyleContext;
   nsFont font = sc->StyleFont()->mFont;
   if (!aGeneric && !SetFontFamily(sc, context->mRenderingContext,
-                                  font, NULL, kNullGlyph, aFamily))
+                                  font, nullptr, kNullGlyph, aFamily))
      return true; // Could not set the family
 
   context->mGlyphTable = glyphTable;
@@ -1313,7 +1313,8 @@ nsMathMLChar::StretchInternal(nsPresContext*           aPresContext,
   nsRefPtr<nsFontMetrics> fm;
   aRenderingContext.DeviceContext()->GetMetricsFor(font,
     mStyleContext->StyleFont()->mLanguage,
-    aPresContext->GetUserFontSet(), *getter_AddRefs(fm));
+    aPresContext->GetUserFontSet(),
+    aPresContext->GetTextPerfMetrics(), *getter_AddRefs(fm));
   aRenderingContext.SetFont(fm);
   aDesiredStretchSize =
     aRenderingContext.GetBoundingMetrics(mData.get(), uint32_t(mData.Length()));
@@ -1644,6 +1645,9 @@ public:
   }
 #endif
 
+  virtual void ComputeInvalidationRegion(nsDisplayListBuilder* aBuilder,
+                                         const nsDisplayItemGeometry* aGeometry,
+                                         nsRegion *aInvalidRegion) MOZ_OVERRIDE;
   virtual void Paint(nsDisplayListBuilder* aBuilder,
                      nsRenderingContext* aCtx);
   NS_DISPLAY_DECL_NAME("MathMLCharBackground", TYPE_MATHML_CHAR_BACKGROUND)
@@ -1651,6 +1655,16 @@ private:
   nsStyleContext* mStyleContext;
   nsRect          mRect;
 };
+
+void
+nsDisplayMathMLCharBackground::ComputeInvalidationRegion(nsDisplayListBuilder* aBuilder,
+                                                         const nsDisplayItemGeometry* aGeometry,
+                                                         nsRegion *aInvalidRegion)
+{
+  AddInvalidRegionForSyncDecodeBackgroundImages(aBuilder, aGeometry, aInvalidRegion);
+
+  nsDisplayItem::ComputeInvalidationRegion(aBuilder, aGeometry, aInvalidRegion);
+}
 
 void nsDisplayMathMLCharBackground::Paint(nsDisplayListBuilder* aBuilder,
                                           nsRenderingContext* aCtx)
@@ -1856,7 +1870,7 @@ nsMathMLChar::PaintForeground(nsPresContext* aPresContext,
   nsRefPtr<nsFontMetrics> fm;
   aRenderingContext.DeviceContext()->GetMetricsFor(theFont,
     styleContext->StyleFont()->mLanguage,
-    aPresContext->GetUserFontSet(),
+    aPresContext->GetUserFontSet(), aPresContext->GetTextPerfMetrics(),
     *getter_AddRefs(fm));
   aRenderingContext.SetFont(fm);
 

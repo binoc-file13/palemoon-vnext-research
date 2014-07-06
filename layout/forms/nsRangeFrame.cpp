@@ -5,15 +5,15 @@
 
 #include "nsRangeFrame.h"
 
+#include "mozilla/TouchEvents.h"
+
 #include "nsContentCreatorFunctions.h"
 #include "nsContentList.h"
 #include "nsContentUtils.h"
 #include "nsCSSRenderingBorders.h"
-#include "nsFontMetrics.h"
 #include "nsFormControlFrame.h"
 #include "nsIContent.h"
 #include "nsIDocument.h"
-#include "nsIDOMHTMLInputElement.h"
 #include "nsINameSpaceManager.h"
 #include "nsINodeInfo.h"
 #include "nsIPresShell.h"
@@ -23,9 +23,8 @@
 #include "nsNodeInfoManager.h"
 #include "nsRenderingContext.h"
 #include "mozilla/dom/Element.h"
-#include "prtypes.h"
-
-#include <algorithm>
+#include "nsStyleSet.h"
+#include "nsThemeConstants.h"
 
 #ifdef ACCESSIBILITY
 #include "nsAccessibilityService.h"
@@ -34,6 +33,7 @@
 #define LONG_SIDE_TO_SHORT_SIDE_RATIO 10
 
 using namespace mozilla;
+using namespace mozilla::dom;
 
 nsIFrame*
 NS_NewRangeFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
@@ -99,30 +99,25 @@ nsRangeFrame::DestroyFrom(nsIFrame* aDestructRoot)
 }
 
 nsresult
-nsRangeFrame::MakeAnonymousDiv(nsIContent** aResult,
+nsRangeFrame::MakeAnonymousDiv(Element** aResult,
                                nsCSSPseudoElements::Type aPseudoType,
                                nsTArray<ContentInfo>& aElements)
 {
-  // Get the NodeInfoManager and tag necessary to create the anonymous divs.
   nsCOMPtr<nsIDocument> doc = mContent->GetDocument();
+  nsRefPtr<Element> resultElement = doc->CreateHTMLElement(nsGkAtoms::div);
 
-  nsCOMPtr<nsINodeInfo> nodeInfo;
-  nodeInfo = doc->NodeInfoManager()->GetNodeInfo(nsGkAtoms::div, nullptr,
-                                                 kNameSpaceID_XHTML,
-                                                 nsIDOMNode::ELEMENT_NODE);
-  NS_ENSURE_TRUE(nodeInfo, NS_ERROR_OUT_OF_MEMORY);
-  nsresult rv = NS_NewHTMLElement(aResult, nodeInfo.forget(),
-                                  dom::NOT_FROM_PARSER);
-  NS_ENSURE_SUCCESS(rv, rv);
   // Associate the pseudo-element with the anonymous child.
   nsRefPtr<nsStyleContext> newStyleContext =
     PresContext()->StyleSet()->ResolvePseudoElementStyle(mContent->AsElement(),
                                                          aPseudoType,
-                                                         StyleContext());
+                                                         StyleContext(),
+                                                         resultElement);
 
-  if (!aElements.AppendElement(ContentInfo(*aResult, newStyleContext))) {
+  if (!aElements.AppendElement(ContentInfo(resultElement, newStyleContext))) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
+
+  resultElement.forget(aResult);
   return NS_OK;
 }
 
@@ -275,10 +270,10 @@ nsRangeFrame::Reflow(nsPresContext*           aPresContext,
   if (computedHeight == NS_AUTOHEIGHT) {
     computedHeight = 0;
   }
-  aDesiredSize.width = aReflowState.ComputedWidth() +
-                       aReflowState.mComputedBorderPadding.LeftRight();
-  aDesiredSize.height = computedHeight +
-                        aReflowState.mComputedBorderPadding.TopBottom();
+  aDesiredSize.Width() = aReflowState.ComputedWidth() +
+                       aReflowState.ComputedPhysicalBorderPadding().LeftRight();
+  aDesiredSize.Height() = computedHeight +
+                        aReflowState.ComputedPhysicalBorderPadding().TopBottom();
 
   nsresult rv =
     ReflowAnonymousContent(aPresContext, aDesiredSize, aReflowState);
@@ -345,24 +340,24 @@ nsRangeFrame::ReflowAnonymousContent(nsPresContext*           aPresContext,
     nscoord trackY = rangeFrameContentBoxHeight / 2;
 
     // Account for the track's border and padding (we ignore its margin):
-    trackX -= trackReflowState.mComputedBorderPadding.left +
+    trackX -= trackReflowState.ComputedPhysicalBorderPadding().left +
                 trackReflowState.ComputedWidth() / 2;
-    trackY -= trackReflowState.mComputedBorderPadding.top +
+    trackY -= trackReflowState.ComputedPhysicalBorderPadding().top +
                 trackReflowState.ComputedHeight() / 2;
 
     // Make relative to our border box instead of our content box:
-    trackX += aReflowState.mComputedBorderPadding.left;
-    trackY += aReflowState.mComputedBorderPadding.top;
+    trackX += aReflowState.ComputedPhysicalBorderPadding().left;
+    trackY += aReflowState.ComputedPhysicalBorderPadding().top;
 
     nsReflowStatus frameStatus;
-    nsHTMLReflowMetrics trackDesiredSize;
+    nsHTMLReflowMetrics trackDesiredSize(aReflowState.GetWritingMode());
     nsresult rv = ReflowChild(trackFrame, aPresContext, trackDesiredSize,
                               trackReflowState, trackX, trackY, 0, frameStatus);
     NS_ENSURE_SUCCESS(rv, rv);
     MOZ_ASSERT(NS_FRAME_IS_FULLY_COMPLETE(frameStatus),
                "We gave our child unconstrained height, so it should be complete");
-    rv = FinishReflowChild(trackFrame, aPresContext, &trackReflowState,
-                           trackDesiredSize, trackX, trackY, 0);
+    rv = FinishReflowChild(trackFrame, aPresContext, trackDesiredSize,
+                           &trackReflowState, trackX, trackY, 0);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -377,18 +372,18 @@ nsRangeFrame::ReflowAnonymousContent(nsPresContext*           aPresContext,
     // the thumb at {0,0} to obtain its size, then position it afterwards.
 
     nsReflowStatus frameStatus;
-    nsHTMLReflowMetrics thumbDesiredSize;
+    nsHTMLReflowMetrics thumbDesiredSize(aReflowState.GetWritingMode());
     nsresult rv = ReflowChild(thumbFrame, aPresContext, thumbDesiredSize,
                               thumbReflowState, 0, 0, 0, frameStatus);
     NS_ENSURE_SUCCESS(rv, rv);
     MOZ_ASSERT(NS_FRAME_IS_FULLY_COMPLETE(frameStatus),
                "We gave our child unconstrained height, so it should be complete");
-    rv = FinishReflowChild(thumbFrame, aPresContext, &thumbReflowState,
-                           thumbDesiredSize, 0, 0, 0);
+    rv = FinishReflowChild(thumbFrame, aPresContext, thumbDesiredSize,
+                           &thumbReflowState, 0, 0, 0);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    DoUpdateThumbPosition(thumbFrame, nsSize(aDesiredSize.width,
-                                             aDesiredSize.height));
+    DoUpdateThumbPosition(thumbFrame, nsSize(aDesiredSize.Width(),
+                                             aDesiredSize.Height()));
   }
 
   nsIFrame* rangeProgressFrame = mProgressDiv->GetPrimaryFrame();
@@ -404,7 +399,7 @@ nsRangeFrame::ReflowAnonymousContent(nsPresContext*           aPresContext,
     // ends at the thumb.
 
     nsReflowStatus frameStatus;
-    nsHTMLReflowMetrics progressDesiredSize;
+    nsHTMLReflowMetrics progressDesiredSize(aReflowState.GetWritingMode());
     nsresult rv = ReflowChild(rangeProgressFrame, aPresContext,
                               progressDesiredSize, progressReflowState, 0, 0,
                               0, frameStatus);
@@ -412,11 +407,11 @@ nsRangeFrame::ReflowAnonymousContent(nsPresContext*           aPresContext,
     MOZ_ASSERT(NS_FRAME_IS_FULLY_COMPLETE(frameStatus),
                "We gave our child unconstrained height, so it should be complete");
     rv = FinishReflowChild(rangeProgressFrame, aPresContext,
-                           &progressReflowState, progressDesiredSize, 0, 0, 0);
+                           progressDesiredSize, &progressReflowState, 0, 0, 0);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    DoUpdateRangeProgressFrame(rangeProgressFrame, nsSize(aDesiredSize.width,
-                                                          aDesiredSize.height));
+    DoUpdateRangeProgressFrame(rangeProgressFrame, nsSize(aDesiredSize.Width(),
+                                                          aDesiredSize.Height()));
   }
 
   return NS_OK;
@@ -456,7 +451,7 @@ nsRangeFrame::GetValueAsFractionOfRange()
 }
 
 Decimal
-nsRangeFrame::GetValueAtEventPoint(nsGUIEvent* aEvent)
+nsRangeFrame::GetValueAtEventPoint(WidgetGUIEvent* aEvent)
 {
   MOZ_ASSERT(aEvent->eventStructType == NS_MOUSE_EVENT ||
              aEvent->eventStructType == NS_TOUCH_EVENT,
@@ -476,16 +471,18 @@ nsRangeFrame::GetValueAtEventPoint(nsGUIEvent* aEvent)
   }
   Decimal range = maximum - minimum;
 
-  nsIntPoint absPoint;
+  LayoutDeviceIntPoint absPoint;
   if (aEvent->eventStructType == NS_TOUCH_EVENT) {
-    MOZ_ASSERT(static_cast<nsTouchEvent*>(aEvent)->touches.Length() == 1,
+    MOZ_ASSERT(aEvent->AsTouchEvent()->touches.Length() == 1,
                "Unexpected number of touches");
-    absPoint = static_cast<nsTouchEvent*>(aEvent)->touches[0]->mRefPoint;
+    absPoint = LayoutDeviceIntPoint::FromUntyped(
+      aEvent->AsTouchEvent()->touches[0]->mRefPoint);
   } else {
     absPoint = aEvent->refPoint;
   }
   nsPoint point =
-    nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, absPoint, this);
+    nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, 
+      LayoutDeviceIntPoint::ToUntyped(absPoint), this);
 
   if (point == nsPoint(NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE)) {
     // We don't want to change the current value for this error state.
@@ -698,7 +695,8 @@ nsRangeFrame::AttributeChanged(int32_t  aNameSpaceID,
       MOZ_ASSERT(mContent->IsHTML(nsGkAtoms::input), "bad cast");
       bool typeIsRange = static_cast<dom::HTMLInputElement*>(mContent)->GetType() ==
                            NS_FORM_INPUT_RANGE;
-      MOZ_ASSERT(typeIsRange || aAttribute == nsGkAtoms::value, "why?");
+      // If script changed the <input>'s type before setting these attributes
+      // then we don't need to do anything since we are going to be reframed.
       if (typeIsRange) {
         UpdateForValueChange();
       }
@@ -828,4 +826,22 @@ nsRangeFrame::ShouldUseNativeStyle() const
                                                  STYLES_DISABLING_NATIVE_THEMING) &&
          !PresContext()->HasAuthorSpecifiedRules(mThumbDiv->GetPrimaryFrame(),
                                                  STYLES_DISABLING_NATIVE_THEMING);
+}
+
+Element*
+nsRangeFrame::GetPseudoElement(nsCSSPseudoElements::Type aType)
+{
+  if (aType == nsCSSPseudoElements::ePseudo_mozRangeTrack) {
+    return mTrackDiv;
+  }
+
+  if (aType == nsCSSPseudoElements::ePseudo_mozRangeThumb) {
+    return mThumbDiv;
+  }
+
+  if (aType == nsCSSPseudoElements::ePseudo_mozRangeProgress) {
+    return mProgressDiv;
+  }
+
+  return nsContainerFrame::GetPseudoElement(aType);
 }

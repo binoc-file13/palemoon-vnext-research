@@ -6,7 +6,6 @@ const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
-Cu.import("resource://webapprt/modules/Startup.jsm");
 Cu.import("resource://webapprt/modules/WebappRT.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -25,6 +24,27 @@ let progressListener = {
                                          Ci.nsISupportsWeakReference]),
   onLocationChange: function onLocationChange(progress, request, location,
                                               flags) {
+
+    // Close tooltip (code adapted from /browser/base/content/browser.js)
+    let pageTooltip = document.getElementById("contentAreaTooltip");
+    let tooltipNode = pageTooltip.triggerNode;
+    if (tooltipNode) {
+      // Optimise for the common case
+      if (progress.isTopLevel) {
+        pageTooltip.hidePopup();
+      }
+      else {
+        for (let tooltipWindow = tooltipNode.ownerDocument.defaultView;
+             tooltipWindow != tooltipWindow.parent;
+             tooltipWindow = tooltipWindow.parent) {
+          if (tooltipWindow == progress.DOMWindow) {
+            pageTooltip.hidePopup();
+            break;
+          }
+        }
+      }
+    }
+
     // Set the title of the window to the name of the webapp, adding the origin
     // of the page being loaded if it's from a different origin than the app
     // (per security bug 741955, which specifies that other-origin pages loaded
@@ -33,6 +53,10 @@ let progressListener = {
     let origin = location.prePath;
     if (origin != WebappRT.config.app.origin) {
       title = origin + " - " + title;
+
+      // We should exit fullscreen mode if the user navigates off the app
+      // origin.
+      document.mozCancelFullScreen();
     }
     document.documentElement.setAttribute("title", title);
   },
@@ -49,10 +73,6 @@ let progressListener = {
 function onLoad() {
   window.removeEventListener("load", onLoad, false);
 
-  let args = window.arguments && window.arguments[0] ?
-             window.arguments[0].QueryInterface(Ci.nsIPropertyBag2) :
-             null;
-
   gAppBrowser.addProgressListener(progressListener,
                                   Ci.nsIWebProgress.NOTIFY_LOCATION |
                                   Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT);
@@ -64,13 +84,9 @@ function onLoad() {
   // something different if it doesn't want the default behavior.
   gAppBrowser.addEventListener("click", onContentClick, false, true);
 
-  // This is not the only way that a URL gets loaded in the app browser.
-  // When content calls openWindow(), there are no window.arguments,
-  // but something in the platform loads the URL specified by the content.
-  if (args && args.hasKey("url")) {
-    gAppBrowser.setAttribute("src", args.get("url"));
+  if (WebappRT.config.app.manifest.fullscreen) {
+    enterFullScreen();
   }
-
 }
 window.addEventListener("load", onLoad, false);
 
@@ -78,6 +94,33 @@ function onUnload() {
   gAppBrowser.removeProgressListener(progressListener);
 }
 window.addEventListener("unload", onUnload, false);
+
+// Fullscreen handling.
+
+function enterFullScreen() {
+  // We call mozRequestFullScreen here so that the app window goes in
+  // fullscreen mode as soon as it's loaded and not after the <browser>
+  // content is loaded.
+  gAppBrowser.mozRequestFullScreen();
+
+  // We need to call mozRequestFullScreen on the document element too,
+  // otherwise the app isn't aware of the fullscreen status.
+  gAppBrowser.addEventListener("load", function onLoad() {
+    gAppBrowser.removeEventListener("load", onLoad, true);
+    gAppBrowser.contentDocument.
+      documentElement.wrappedJSObject.mozRequestFullScreen();
+  }, true);
+}
+
+#ifndef XP_MACOSX
+document.addEventListener('mozfullscreenchange', function() {
+  if (document.mozFullScreenElement) {
+    document.getElementById("main-menubar").style.display = "none";
+  } else {
+    document.getElementById("main-menubar").style.display = "";
+  }
+}, false);
+#endif
 
 /**
  * Direct a click on <a target="_blank"> to the user's default browser.
@@ -128,15 +171,22 @@ function updateMenuItems() {
 #endif
 }
 
+#ifndef XP_MACOSX
+let gEditUIVisible = true;
+#endif
+
 function updateEditUIVisibility() {
 #ifndef XP_MACOSX
   let editMenuPopupState = document.getElementById("menu_EditPopup").state;
+  let contextMenuPopupState = document.getElementById("contentAreaContextMenu").state;
 
   // The UI is visible if the Edit menu is opening or open, if the context menu
   // is open, or if the toolbar has been customized to include the Cut, Copy,
   // or Paste toolbar buttons.
   gEditUIVisible = editMenuPopupState == "showing" ||
-                   editMenuPopupState == "open";
+                   editMenuPopupState == "open" ||
+                   contextMenuPopupState == "showing" ||
+                   contextMenuPopupState == "open";
 
   // If UI is visible, update the edit commands' enabled state to reflect
   // whether or not they are actually enabled for the current focus/selection.
@@ -177,3 +227,50 @@ function updateCrashReportURL(aURI) {
   gCrashReporter.annotateCrashReport("URL", uri.spec);
 #endif
 }
+
+// Context menu handling code.
+// At the moment there isn't any built-in menu, we only support HTML5 custom
+// menus.
+
+let gContextMenu = null;
+
+XPCOMUtils.defineLazyGetter(this, "PageMenu", function() {
+  let tmp = {};
+  Cu.import("resource://gre/modules/PageMenu.jsm", tmp);
+  return new tmp.PageMenu();
+});
+
+function showContextMenu(aEvent, aXULMenu) {
+  if (aEvent.target != aXULMenu) {
+    return true;
+  }
+
+  gContextMenu = new nsContextMenu(aXULMenu);
+  if (gContextMenu.shouldDisplay) {
+    updateEditUIVisibility();
+  }
+
+  return gContextMenu.shouldDisplay;
+}
+
+function hideContextMenu(aEvent, aXULMenu) {
+  if (aEvent.target != aXULMenu) {
+    return;
+  }
+
+  gContextMenu = null;
+
+  updateEditUIVisibility();
+}
+
+function nsContextMenu(aXULMenu) {
+  this.initMenu(aXULMenu);
+}
+
+nsContextMenu.prototype = {
+  initMenu: function(aXULMenu) {
+    this.hasPageMenu = PageMenu.maybeBuildAndAttachMenu(document.popupNode,
+                                                        aXULMenu);
+    this.shouldDisplay = this.hasPageMenu;
+  },
+};

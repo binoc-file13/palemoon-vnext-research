@@ -15,6 +15,7 @@
 #endif
 
 #include "nsCycleCollectionNoteChild.h"
+#include "mozilla/MemoryReporting.h"
 
 /*****************************************************************************/
 
@@ -91,12 +92,19 @@ class nsAutoPtr
         {
         }
 
+      // This constructor shouldn't exist; we should just use the &&
+      // constructor.
       nsAutoPtr( nsAutoPtr<T>& aSmartPtr )
             : mRawPtr( aSmartPtr.forget() )
           // Construct by transferring ownership from another smart pointer.
         {
         }
 
+      nsAutoPtr( nsAutoPtr<T>&& aSmartPtr )
+            : mRawPtr( aSmartPtr.forget() )
+          // Construct by transferring ownership from another smart pointer.
+        {
+        }
 
         // Assignment operators
 
@@ -592,6 +600,18 @@ class nsAutoArrayPtr
           assign(0);
           return reinterpret_cast<T**>(&mRawPtr);
 #endif
+        }
+
+      size_t
+      SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
+        {
+          return aMallocSizeOf(mRawPtr);
+        }
+
+      size_t
+      SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
+        {
+          return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
         }
   };
 

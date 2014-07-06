@@ -20,10 +20,11 @@
 #include "MediaStreamList.h"
 #include "nsIScriptGlobalObject.h"
 #include "mozilla/Preferences.h"
-#include "jsapi.h"
+#include "mozilla/dom/RTCStatsReportBinding.h"
 #endif
 
 using namespace mozilla;
+using namespace mozilla::dom;
 
 namespace sipcc {
 
@@ -114,6 +115,16 @@ void RemoteSourceStreamInfo::DetachMedia_m()
   mMediaStream = nullptr;
 }
 
+already_AddRefed<PeerConnectionImpl>
+PeerConnectionImpl::Constructor(const dom::GlobalObject& aGlobal, ErrorResult& rv)
+{
+  nsRefPtr<PeerConnectionImpl> pc = new PeerConnectionImpl(&aGlobal);
+
+  CSFLogDebug(logTag, "Created PeerConnection: %p", pc.get());
+
+  return pc.forget();
+}
+
 PeerConnectionImpl* PeerConnectionImpl::CreatePeerConnection()
 {
   PeerConnectionImpl *pc = new PeerConnectionImpl();
@@ -127,7 +138,7 @@ PeerConnectionImpl* PeerConnectionImpl::CreatePeerConnection()
 PeerConnectionMedia::PeerConnectionMedia(PeerConnectionImpl *parent)
     : mParent(parent),
       mLocalSourceStreamsLock("PeerConnectionMedia.mLocalSourceStreamsLock"),
-      mIceCtx(NULL),
+      mIceCtx(nullptr),
       mDNSResolver(new mozilla::NrIceResolver()),
       mMainThread(mParent->GetMainThread()),
       mSTSThread(mParent->GetSTSThread()) {}
@@ -137,7 +148,7 @@ nsresult PeerConnectionMedia::Init(const std::vector<NrIceStunServer>& stun_serv
 {
   // TODO(ekr@rtfm.com): need some way to set not offerer later
   // Looks like a bug in the NrIceCtx API.
-  mIceCtx = NrIceCtx::Create("PC:" + mParent->GetHandle(), true);
+  mIceCtx = NrIceCtx::Create("PC:" + mParent->GetName(), true);
   if(!mIceCtx) {
     CSFLogError(logTag, "%s: Failed to create Ice Context", __FUNCTION__);
     return NS_ERROR_FAILURE;
@@ -169,22 +180,22 @@ nsresult PeerConnectionMedia::Init(const std::vector<NrIceStunServer>& stun_serv
     CSFLogError(logTag, "%s: Failed to get dns resolver", __FUNCTION__);
     return rv;
   }
-  mIceCtx->SignalGatheringCompleted.connect(this,
-                                            &PeerConnectionMedia::IceGatheringCompleted);
-  mIceCtx->SignalCompleted.connect(this,
-                                   &PeerConnectionMedia::IceCompleted);
-  mIceCtx->SignalFailed.connect(this,
-                                &PeerConnectionMedia::IceFailed);
+  mIceCtx->SignalGatheringStateChange.connect(
+      this,
+      &PeerConnectionMedia::IceGatheringStateChange);
+  mIceCtx->SignalConnectionStateChange.connect(
+      this,
+      &PeerConnectionMedia::IceConnectionStateChange);
 
   // Create three streams to start with.
   // One each for audio, video and DataChannel
   // TODO: this will be re-visited
   RefPtr<NrIceMediaStream> audioStream =
-    mIceCtx->CreateStream((mParent->GetHandle()+"/stream1/audio").c_str(), 2);
+    mIceCtx->CreateStream((mParent->GetName()+": stream1/audio").c_str(), 2);
   RefPtr<NrIceMediaStream> videoStream =
-    mIceCtx->CreateStream((mParent->GetHandle()+"/stream2/video").c_str(), 2);
+    mIceCtx->CreateStream((mParent->GetName()+": stream2/video").c_str(), 2);
   RefPtr<NrIceMediaStream> dcStream =
-    mIceCtx->CreateStream((mParent->GetHandle()+"/stream3/data").c_str(), 2);
+    mIceCtx->CreateStream((mParent->GetName()+": stream3/data").c_str(), 2);
 
   if (!audioStream) {
     CSFLogError(logTag, "%s: audio stream is NULL", __FUNCTION__);
@@ -236,6 +247,11 @@ PeerConnectionMedia::AddStream(nsIDOMMediaStream* aMediaStream, uint32_t *stream
 
   // Adding tracks here based on nsDOMMediaStream expectation settings
   uint32_t hints = stream->GetHintContents();
+#ifdef MOZILLA_INTERNAL_API
+  if (!Preferences::GetBool("media.peerconnection.video.enabled", true)) {
+    hints &= ~(DOMMediaStream::HINT_CONTENTS_VIDEO);
+  }
+#endif
 
   if (!(hints & (DOMMediaStream::HINT_CONTENTS_AUDIO |
         DOMMediaStream::HINT_CONTENTS_VIDEO))) {
@@ -352,7 +368,7 @@ PeerConnectionMedia::ShutdownMediaTransport_s()
   disconnect_all();
   mTransportFlows.clear();
   mIceStreams.clear();
-  mIceCtx = NULL;
+  mIceCtx = nullptr;
 
   mMainThread->Dispatch(WrapRunnable(this, &PeerConnectionMedia::SelfDestruct_m),
                         NS_DISPATCH_NORMAL);
@@ -362,7 +378,7 @@ LocalSourceStreamInfo*
 PeerConnectionMedia::GetLocalStream(int aIndex)
 {
   if(aIndex < 0 || aIndex >= (int) mLocalSourceStreams.Length()) {
-    return NULL;
+    return nullptr;
   }
 
   MOZ_ASSERT(mLocalSourceStreams[aIndex]);
@@ -373,7 +389,7 @@ RemoteSourceStreamInfo*
 PeerConnectionMedia::GetRemoteStream(int aIndex)
 {
   if(aIndex < 0 || aIndex >= (int) mRemoteSourceStreams.Length()) {
-    return NULL;
+    return nullptr;
   }
 
   MOZ_ASSERT(mRemoteSourceStreams[aIndex]);
@@ -415,24 +431,17 @@ PeerConnectionMedia::AddRemoteStreamHint(int aIndex, bool aIsVideo)
 
 
 void
-PeerConnectionMedia::IceGatheringCompleted(NrIceCtx *aCtx)
+PeerConnectionMedia::IceGatheringStateChange(NrIceCtx* ctx,
+                                             NrIceCtx::GatheringState state)
 {
-  MOZ_ASSERT(aCtx);
-  SignalIceGatheringCompleted(aCtx);
+  SignalIceGatheringStateChange(ctx, state);
 }
 
 void
-PeerConnectionMedia::IceCompleted(NrIceCtx *aCtx)
+PeerConnectionMedia::IceConnectionStateChange(NrIceCtx* ctx,
+                                              NrIceCtx::ConnectionState state)
 {
-  MOZ_ASSERT(aCtx);
-  SignalIceCompleted(aCtx);
-}
-
-void
-PeerConnectionMedia::IceFailed(NrIceCtx *aCtx)
-{
-  MOZ_ASSERT(aCtx);
-  SignalIceFailed(aCtx);
+  SignalIceConnectionStateChange(ctx, state);
 }
 
 void
@@ -442,7 +451,6 @@ PeerConnectionMedia::IceStreamReady(NrIceMediaStream *aStream)
 
   CSFLogDebug(logTag, "%s: %s", __FUNCTION__, aStream->name().c_str());
 }
-
 
 void
 LocalSourceStreamInfo::StorePipeline(int aTrack,

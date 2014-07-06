@@ -8,10 +8,10 @@
 #ifndef nsDOMCSSDeclaration_h___
 #define nsDOMCSSDeclaration_h___
 
-#include "mozilla/Attributes.h"
 #include "nsICSSDeclaration.h"
+
+#include "mozilla/Attributes.h"
 #include "nsCOMPtr.h"
-#include "mozilla/dom/CSS2PropertiesBinding.h"
 
 class nsIPrincipal;
 class nsIDocument;
@@ -92,11 +92,8 @@ public:
 
   virtual void IndexedGetter(uint32_t aIndex, bool& aFound, nsAString& aPropName) MOZ_OVERRIDE;
 
-  virtual JSObject* WrapObject(JSContext *cx,
-                               JS::Handle<JSObject*> scope) MOZ_OVERRIDE
-  {
-    return mozilla::dom::CSS2PropertiesBinding::Wrap(cx, scope, this);
-  }
+  virtual JSObject* WrapObject(JSContext* aCx,
+                               JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
 
 protected:
   // This method can return null regardless of the value of aAllocate;
@@ -140,6 +137,12 @@ protected:
   // Prop-id based version of RemoveProperty.  Note that this does not
   // return the old value; it just does a straight removal.
   nsresult RemoveProperty(const nsCSSProperty aPropID);
+
+  void GetCustomPropertyValue(const nsAString& aPropertyName, nsAString& aValue);
+  nsresult RemoveCustomProperty(const nsAString& aPropertyName);
+  nsresult ParseCustomPropertyValue(const nsAString& aPropertyName,
+                                    const nsAString& aPropValue,
+                                    bool aIsImportant);
 
 protected:
   virtual ~nsDOMCSSDeclaration();

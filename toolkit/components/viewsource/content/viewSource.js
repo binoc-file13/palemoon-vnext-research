@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 Components.utils.import("resource://gre/modules/Services.jsm");
+Components.utils.import("resource://gre/modules/CharsetMenu.jsm");
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -110,9 +111,9 @@ function viewSource(url)
         if (typeof(arg) == "string" && arg.indexOf('charset=') != -1) {
           var arrayArgComponents = arg.split('=');
           if (arrayArgComponents) {
-            //we should "inherit" the charset menu setting in a new window
+            // Remember the charset here so that it can be used below in case
+            // the document had a forced charset.
             charset = arrayArgComponents[1];
-            gBrowser.markupDocumentViewer.defaultCharacterSet = charset;
           }
         }
       } catch (ex) {
@@ -263,13 +264,10 @@ function onClickContent(event) {
         } catch (e) {
           Components.utils.reportError("Couldn't get malware report URL: " + e);
         }
-      } else { // It's a phishing site, not malware
-        try {
-          var infoURL = Services.urlFormatter.formatURLPref("browser.safebrowsing.warning.infoURL", true);
-          openURL(infoURL);
-        } catch (e) {
-          Components.utils.reportError("Couldn't get phishing info URL: " + e);
-        }
+      } else {
+        // It's a phishing site, just link to the generic information page
+        let url = Services.urlFormatter.formatURLPref("app.support.baseURL");
+        openURL(url + "phishing-malware");
       }
     } else if (target == errorDoc.getElementById('ignoreWarningButton')) {
       // Allow users to override and continue through to the site
@@ -626,16 +624,12 @@ function findLocation(pre, line, node, offset, interlinePosition, result)
 function wrapLongLines()
 {
   var myWrap = window.content.document.body;
-
-  if (myWrap.className == '')
-    myWrap.className = 'wrap';
-  else
-    myWrap.className = '';
+  myWrap.classList.toggle("wrap");
 
   // Since multiple viewsource windows are possible, another window could have
   // affected the pref, so instead of determining the new pref value via the current
-  // pref value, we use myWrap.className.
-  Services.prefs.setBoolPref("view_source.wrap_long_lines", myWrap.className != '');
+  // pref value, we use myWrap.classList.
+  Services.prefs.setBoolPref("view_source.wrap_long_lines", myWrap.classList.contains("wrap"));
 }
 
 // Toggles syntax highlighting and sets the view_source.syntax_highlight
@@ -667,6 +661,78 @@ function BrowserSetForcedCharacterSet(aCharset)
 {
   gBrowser.docShell.charset = aCharset;
   BrowserCharsetReload();
+}
+
+function MultiplexHandler(event)
+{
+  var node = event.target;
+  var name = node.getAttribute("name");
+
+  if (name == "detectorGroup") {
+    SelectDetector(event);
+    BrowserCharsetReload();
+  } else if (name == "charsetGroup") {
+    var charset = node.getAttribute("id");
+    charset = charset.substring(charset.indexOf("charset.") + "charset.".length);
+    BrowserSetForcedCharacterSet(charset);
+  }
+}
+
+function SelectDetector(event)
+{
+  var uri =  event.target.getAttribute("id");
+  var prefvalue = uri.substring(uri.indexOf("chardet.") + "chardet.".length);
+  if ("off" == prefvalue) { // "off" is special value to turn off the detectors
+    prefvalue = "";
+  }
+
+  try {
+    var str = Cc["@mozilla.org/supports-string;1"].
+              createInstance(Ci.nsISupportsString);
+    str.data = prefvalue;
+    gPrefService.setComplexValue("intl.charset.detector", Ci.nsISupportsString, str);
+  }
+  catch (ex) {
+    dump("Failed to set the intl.charset.detector preference.\n");
+  }
+}
+
+function FoldCharset(charset) {
+  // For substantially similar encodings, treat two encodings as the same
+  // for the purpose of the check mark.
+  if (charset == "ISO-8859-8-I") {
+    return "windows-1255";
+  } else if (charset == "gb18030") {
+    return "gbk";
+  }
+  return charset;
+}
+
+function UpdateCurrentCharset() {
+  var menuitem = document.getElementById("charset." + FoldCharset(content.document.characterSet));
+  if (menuitem)
+    menuitem.setAttribute("checked", "true");
+}
+
+function UpdateCharsetDetector() {
+  var prefvalue;
+
+  try {
+    prefvalue = gPrefService.getComplexValue("intl.charset.detector", Ci.nsIPrefLocalizedString).data;
+  }
+  catch (ex) {}
+
+  if (!prefvalue)
+    prefvalue = "off";
+
+  var menuitem = document.getElementById("chardet." + prefvalue);
+  if (menuitem)
+    menuitem.setAttribute("checked", "true");
+}
+
+function UpdateMenus() {
+  UpdateCurrentCharset();
+  UpdateCharsetDetector();
 }
 
 function BrowserForward(aEvent) {

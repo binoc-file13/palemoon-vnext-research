@@ -41,8 +41,8 @@ IsEvalCacheCandidate(JSScript *script)
     // Make sure there are no inner objects which might use the wrong parent
     // and/or call scope by reusing the previous eval's script. Skip the
     // script's first object, which entrains the eval's scope.
-    return script->savedCallerFun &&
-           !script->hasSingletons &&
+    return script->savedCallerFun() &&
+           !script->hasSingletons() &&
            script->objects()->length == 1 &&
            !script->hasRegexps();
 }
@@ -74,19 +74,19 @@ EvalCacheHashPolicy::match(const EvalCacheEntry &cacheEntry, const EvalCacheLook
 }
 
 // There are two things we want to do with each script executed in EvalKernel:
-//  1. notify jsdbgapi about script creation/destruction
+//  1. notify OldDebugAPI about script creation/destruction
 //  2. add the script to the eval cache when EvalKernel is finished
 //
 // NB: Although the eval cache keeps a script alive wrt to the JS engine, from
-// a jsdbgapi user's perspective, we want each eval() to create and destroy a
-// script. This hides implementation details and means we don't have to deal
-// with calls to JS_GetScriptObject for scripts in the eval cache.
+// an OldDebugAPI  user's perspective, we want each eval() to create and
+// destroy a script. This hides implementation details and means we don't have
+// to deal with calls to JS_GetScriptObject for scripts in the eval cache.
 class EvalScriptGuard
 {
     JSContext *cx_;
     Rooted<JSScript*> script_;
 
-    /* These fields are only valid if lookup_.str is non-NULL. */
+    /* These fields are only valid if lookup_.str is non-nullptr. */
     EvalCacheLookup lookup_;
     EvalCache::AddPtr p_;
 
@@ -99,8 +99,7 @@ class EvalScriptGuard
     ~EvalScriptGuard() {
         if (script_) {
             CallDestroyScriptHook(cx_->runtime()->defaultFreeOp(), script_);
-            script_->isActiveEval = false;
-            script_->isCachedEval = true;
+            script_->cacheForEval();
             EvalCacheEntry cacheEntry = {script_, lookup_.callerScript, lookup_.pc};
             lookup_.str = lookupStr_;
             if (lookup_.str && IsEvalCacheCandidate(script_))
@@ -120,8 +119,7 @@ class EvalScriptGuard
             script_ = p_->script;
             cx_->runtime()->evalCache.remove(p_);
             CallNewScriptHook(cx_, script_, NullPtr());
-            script_->isCachedEval = false;
-            script_->isActiveEval = true;
+            script_->uncacheForEval();
         }
     }
 
@@ -129,7 +127,7 @@ class EvalScriptGuard
         // JSScript::initFromEmitter has already called js_CallNewScriptHook.
         JS_ASSERT(!script_ && script);
         script_ = script;
-        script_->isActiveEval = true;
+        script_->setActiveEval();
     }
 
     bool foundScript() {
@@ -164,7 +162,7 @@ TryEvalJSON(JSContext *cx, JSScript *callerScript,
     if (length > 2 &&
         ((chars[0] == '[' && chars[length - 1] == ']') ||
         (chars[0] == '(' && chars[length - 1] == ')')) &&
-         (!callerScript || !callerScript->strict))
+        (!callerScript || !callerScript->strict()))
     {
         // Remarkably, JavaScript syntax is not a superset of JSON syntax:
         // strings in JavaScript cannot contain the Unicode line and paragraph
@@ -210,7 +208,7 @@ MarkFunctionsWithinEvalScript(JSScript *script)
         if (obj->is<JSFunction>()) {
             JSFunction *fun = &obj->as<JSFunction>();
             if (fun->hasScript())
-                fun->nonLazyScript()->directlyInsideEval = true;
+                fun->nonLazyScript()->setDirectlyInsideEval();
             else if (fun->isInterpretedLazy())
                 fun->lazyScript()->setDirectlyInsideEval();
         }
@@ -239,7 +237,7 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, AbstractFrame
 
     Rooted<GlobalObject*> scopeObjGlobal(cx, &scopeobj->global());
     if (!GlobalObject::isRuntimeCodeGenEnabled(cx, scopeObjGlobal)) {
-        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_CSP_BLOCKED_EVAL);
+        JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_CSP_BLOCKED_EVAL);
         return false;
     }
 
@@ -263,7 +261,7 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, AbstractFrame
     RootedValue thisv(cx);
     if (evalType == DIRECT_EVAL) {
         JS_ASSERT_IF(caller.isStackFrame(), !caller.asStackFrame()->runningInJit());
-        staticLevel = caller.script()->staticLevel + 1;
+        staticLevel = caller.script()->staticLevel() + 1;
 
         // Direct calls to eval are supposed to see the caller's |this|. If we
         // haven't wrapped that yet, do so now, before we make a copy of it for
@@ -291,7 +289,7 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, AbstractFrame
 
     JSPrincipals *principals = PrincipalsForCompiledCode(args, cx);
 
-    RootedScript callerScript(cx, caller ? caller.script() : NULL);
+    RootedScript callerScript(cx, caller ? caller.script() : nullptr);
     EvalJSONResult ejr = TryEvalJSON(cx, callerScript, chars, length, args.rval());
     if (ejr != EvalJSON_NotJSON)
         return ejr == EvalJSON_Success;
@@ -316,7 +314,8 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, AbstractFrame
                .setNoScriptRval(false)
                .setPrincipals(principals)
                .setOriginPrincipals(originPrincipals);
-        JSScript *compiled = frontend::CompileScript(cx, scopeobj, callerScript, options,
+        JSScript *compiled = frontend::CompileScript(cx, &cx->tempLifoAlloc(),
+                                                     scopeobj, callerScript, options,
                                                      chars.get(), length, stableStr, staticLevel);
         if (!compiled)
             return false;
@@ -331,22 +330,22 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, AbstractFrame
 }
 
 bool
-js::DirectEvalFromIon(JSContext *cx,
-                      HandleObject scopeobj, HandleScript callerScript,
-                      HandleValue thisValue, HandleString str,
-                      jsbytecode *pc, MutableHandleValue vp)
+js::DirectEvalStringFromIon(JSContext *cx,
+                            HandleObject scopeobj, HandleScript callerScript,
+                            HandleValue thisValue, HandleString str,
+                            jsbytecode *pc, MutableHandleValue vp)
 {
     AssertInnerizedScopeChain(cx, *scopeobj);
 
     Rooted<GlobalObject*> scopeObjGlobal(cx, &scopeobj->global());
     if (!GlobalObject::isRuntimeCodeGenEnabled(cx, scopeObjGlobal)) {
-        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_CSP_BLOCKED_EVAL);
+        JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_CSP_BLOCKED_EVAL);
         return false;
     }
 
     // ES5 15.1.2.1 steps 2-8.
 
-    unsigned staticLevel = callerScript->staticLevel + 1;
+    unsigned staticLevel = callerScript->staticLevel() + 1;
 
     Rooted<JSStableString*> stableStr(cx, str->ensureStable(cx));
     if (!stableStr)
@@ -380,7 +379,8 @@ js::DirectEvalFromIon(JSContext *cx,
                .setNoScriptRval(false)
                .setPrincipals(principals)
                .setOriginPrincipals(originPrincipals);
-        JSScript *compiled = frontend::CompileScript(cx, scopeobj, callerScript, options,
+        JSScript *compiled = frontend::CompileScript(cx, &cx->tempLifoAlloc(),
+                                                     scopeobj, callerScript, options,
                                                      chars.get(), length, stableStr, staticLevel);
         if (!compiled)
             return false;
@@ -398,39 +398,28 @@ js::DirectEvalFromIon(JSContext *cx,
                          NullFramePtr() /* evalInFrame */, vp.address());
 }
 
-// We once supported a second argument to eval to use as the scope chain
-// when evaluating the code string.  Warn when such uses are seen so that
-// authors will know that support for eval(s, o) has been removed.
-static inline bool
-WarnOnTooManyArgs(JSContext *cx, const CallArgs &args)
+bool
+js::DirectEvalValueFromIon(JSContext *cx,
+                           HandleObject scopeobj, HandleScript callerScript,
+                           HandleValue thisValue, HandleValue evalArg,
+                           jsbytecode *pc, MutableHandleValue vp)
 {
-    if (args.length() > 1) {
-        Rooted<JSScript*> script(cx, cx->currentScript());
-        if (script && !script->warnedAboutTwoArgumentEval) {
-            static const char TWO_ARGUMENT_WARNING[] =
-                "Support for eval(code, scopeObject) has been removed. "
-                "Use |with (scopeObject) eval(code);| instead.";
-            if (!JS_ReportWarning(cx, TWO_ARGUMENT_WARNING))
-                return false;
-            script->warnedAboutTwoArgumentEval = true;
-        } else {
-            // In the case of an indirect call without a caller frame, avoid a
-            // potential warning-flood by doing nothing.
-        }
+    // Act as identity on non-strings per ES5 15.1.2.1 step 1.
+    if (!evalArg.isString()) {
+        vp.set(evalArg);
+        return true;
     }
 
-    return true;
+    RootedString string(cx, evalArg.toString());
+    return DirectEvalStringFromIon(cx, scopeobj, callerScript, thisValue, string, pc, vp);
 }
 
-JSBool
+bool
 js::IndirectEval(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    if (!WarnOnTooManyArgs(cx, args))
-        return false;
-
     Rooted<GlobalObject*> global(cx, &args.callee().global());
-    return EvalKernel(cx, args, INDIRECT_EVAL, NullFramePtr(), global, NULL);
+    return EvalKernel(cx, args, INDIRECT_EVAL, NullFramePtr(), global, nullptr);
 }
 
 bool
@@ -440,22 +429,14 @@ js::DirectEval(JSContext *cx, const CallArgs &args)
     ScriptFrameIter iter(cx);
     AbstractFramePtr caller = iter.abstractFramePtr();
 
-    JS_ASSERT(IsBuiltinEvalForScope(caller.scopeChain(), args.calleev()));
-    JS_ASSERT(JSOp(*iter.pc()) == JSOP_EVAL);
+    JS_ASSERT(caller.scopeChain()->global().valueIsEval(args.calleev()));
+    JS_ASSERT(JSOp(*iter.pc()) == JSOP_EVAL ||
+              JSOp(*iter.pc()) == JSOP_SPREADEVAL);
     JS_ASSERT_IF(caller.isFunctionFrame(),
                  caller.compartment() == caller.callee()->compartment());
 
-    if (!WarnOnTooManyArgs(cx, args))
-        return false;
-
     RootedObject scopeChain(cx, caller.scopeChain());
     return EvalKernel(cx, args, DIRECT_EVAL, caller, scopeChain, iter.pc());
-}
-
-bool
-js::IsBuiltinEvalForScope(JSObject *scopeChain, const Value &v)
-{
-    return scopeChain->global().getOriginalEval() == v;
 }
 
 bool
@@ -469,7 +450,7 @@ js::PrincipalsForCompiledCode(const CallReceiver &call, JSContext *cx)
 {
     JSObject &callee = call.callee();
     JS_ASSERT(IsAnyBuiltinEval(&callee.as<JSFunction>()) ||
-              IsBuiltinFunctionConstructor(&callee.as<JSFunction>()));
+              callee.as<JSFunction>().isBuiltinFunctionConstructor());
 
     // To compute the principals of the compiled eval/Function code, we simply
     // use the callee's principals. To see why the caller's principals are

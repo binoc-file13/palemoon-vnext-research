@@ -25,8 +25,8 @@
  * Please edit ElementName.java instead and regenerate.
  */
 
-#ifndef nsHtml5ElementName_h__
-#define nsHtml5ElementName_h__
+#ifndef nsHtml5ElementName_h
+#define nsHtml5ElementName_h
 
 #include "nsIAtom.h"
 #include "nsHtml5AtomTable.h"
@@ -68,9 +68,9 @@ class nsHtml5ElementName
 
     int32_t getGroup();
     bool isCustom();
-    static nsHtml5ElementName* elementNameByBuffer(PRUnichar* buf, int32_t offset, int32_t length, nsHtml5AtomTable* interner);
+    static nsHtml5ElementName* elementNameByBuffer(char16_t* buf, int32_t offset, int32_t length, nsHtml5AtomTable* interner);
   private:
-    static int32_t bufToHash(PRUnichar* buf, int32_t len);
+    static int32_t bufToHash(char16_t* buf, int32_t len);
     nsHtml5ElementName(nsIAtom* name, nsIAtom* camelCaseName, int32_t flags);
   protected:
     nsHtml5ElementName(nsIAtom* name);
@@ -328,7 +328,6 @@ class nsHtml5ElementName
     static nsHtml5ElementName* ELT_ACRONYM;
     static nsHtml5ElementName* ELT_ADDRESS;
     static nsHtml5ElementName* ELT_BGSOUND;
-    static nsHtml5ElementName* ELT_COMMAND;
     static nsHtml5ElementName* ELT_COMPOSE;
     static nsHtml5ElementName* ELT_CEILING;
     static nsHtml5ElementName* ELT_CSYMBOL;

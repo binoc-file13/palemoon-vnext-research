@@ -20,6 +20,11 @@ struct SuccessResponse
 {
 };
 
+struct FileDescriptorResponse
+{
+  FileDescriptor fileDescriptor;
+};
+
 struct BlobResponse
 {
   PBlob blob;
@@ -53,15 +58,22 @@ struct AvailableStorageResponse
   nsString mountState;
 };
 
+struct FormatStorageResponse
+{
+  nsString mountState;
+};
+
 union DeviceStorageResponseValue
 {
   ErrorResponse;
   SuccessResponse;
+  FileDescriptorResponse;
   BlobResponse;
   EnumerationResponse;
   FreeSpaceStorageResponse;
   UsedSpaceStorageResponse;
   AvailableStorageResponse;
+  FormatStorageResponse;
 };
 
 sync protocol PDeviceStorageRequest {

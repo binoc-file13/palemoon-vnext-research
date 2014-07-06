@@ -1,9 +1,6 @@
-/* vim:set ts=2 sw=2 sts=2 expandtab */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 'use strict';
 
 module.metadata = {
@@ -48,7 +45,6 @@ const { override, load } = loaderModule;
  * @returns {Error}
  */
 function incompatibility(module) {
-
   let { metadata, id } = module;
 
   // if metadata or engines are not specified we assume compatibility is not
@@ -59,7 +55,7 @@ function incompatibility(module) {
   let { engines } = metadata;
 
   if (engines === null || typeof(engines) !== "object")
-    return new Error("Malformed engine property in metadata");
+    return new Error("Malformed engines' property in metadata");
 
   let applications = Object.keys(engines);
 
@@ -68,7 +64,7 @@ function incompatibility(module) {
     if (xulappModule.is(name)) {
       versionRange = engines[name];
       // Continue iteration. We want to ensure the module doesn't
-      // contain a typo in the applications' names or some unknown
+      // contain a typo in the applications' name or some unknown
       // application - `is` function throws an exception in that case.
     }
   });

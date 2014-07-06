@@ -11,10 +11,15 @@
 #include "SharedSurfaceGL.h"
 #include "SurfaceFactory.h"
 #include "GLLibraryEGL.h"
+#include "mozilla/layers/GrallocTextureClient.h"
 #include "mozilla/layers/ShadowLayers.h"
 
 #include "ui/GraphicBuffer.h"
 #include "../layers/ipc/ShadowLayers.h"
+#include "ScopedGLHelpers.h"
+
+#include "gfxPlatform.h"
+#include "gfx2DGlue.h"
 
 #define DEBUG_GRALLOC
 #ifdef DEBUG_GRALLOC
@@ -49,7 +54,7 @@ SurfaceFactory_Gralloc::SurfaceFactory_Gralloc(GLContext* prodGL,
 SharedSurface_Gralloc*
 SharedSurface_Gralloc::Create(GLContext* prodGL,
                               const GLFormats& formats,
-                              const gfxIntSize& size,
+                              const gfx::IntSize& size,
                               bool hasAlpha,
                               ISurfaceAllocator* allocator)
 {
@@ -61,7 +66,7 @@ SharedSurface_Gralloc::Create(GLContext* prodGL,
         runOnce = false;
     }
 
-    GLLibraryEGL* egl = prodGL->GetLibraryEGL();
+    GLLibraryEGL* egl = &sEGLLibrary;
     MOZ_ASSERT(egl);
 
     DEBUG_PRINT("SharedSurface_Gralloc::Create -------\n");
@@ -69,22 +74,23 @@ SharedSurface_Gralloc::Create(GLContext* prodGL,
     if (!HasExtensions(egl, prodGL))
         return nullptr;
 
-    SurfaceDescriptor baseDesc;
-    SurfaceDescriptorGralloc desc;
+    gfxContentType type = hasAlpha ? gfxContentType::COLOR_ALPHA
+                                   : gfxContentType::COLOR;
 
-    gfxASurface::gfxContentType type = hasAlpha ? gfxASurface::CONTENT_COLOR_ALPHA
-                                                : gfxASurface::CONTENT_COLOR;
-    if (!allocator->AllocSurfaceDescriptorWithCaps(size, type, USING_GL_RENDERING_ONLY, &baseDesc))
-        return false;
+    gfxImageFormat format
+      = gfxPlatform::GetPlatform()->OptimalFormatForContent(type);
 
-    if (baseDesc.type() != SurfaceDescriptor::TSurfaceDescriptorGralloc) {
-        allocator->DestroySharedSurface(&baseDesc);
-        return false;
+    GrallocTextureClientOGL* grallocTC =
+      new GrallocTextureClientOGL(
+          allocator,
+          gfx::ImageFormatToSurfaceFormat(format),
+          TEXTURE_FLAGS_DEFAULT);
+
+    if (!grallocTC->AllocateForGLRendering(size)) {
+      return nullptr;
     }
 
-    desc = baseDesc.get_SurfaceDescriptorGralloc();
-
-    sp<GraphicBuffer> buffer = GrallocBufferActor::GetFrom(desc);
+    sp<GraphicBuffer> buffer = grallocTC->GetGraphicBuffer();
 
     EGLDisplay display = egl->Display();
     EGLClientBuffer clientBuffer = buffer->getNativeBuffer();
@@ -96,7 +102,7 @@ SharedSurface_Gralloc::Create(GLContext* prodGL,
                                        LOCAL_EGL_NATIVE_BUFFER_ANDROID,
                                        clientBuffer, attrs);
     if (!image) {
-        allocator->DestroySharedSurface(&baseDesc);
+        grallocTC->DropTextureData()->DeallocateSharedData(allocator);
         return nullptr;
     }
 
@@ -104,11 +110,17 @@ SharedSurface_Gralloc::Create(GLContext* prodGL,
     GLuint prodTex = 0;
     prodGL->fGenTextures(1, &prodTex);
     ScopedBindTexture autoTex(prodGL, prodTex);
+
+    prodGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MIN_FILTER, LOCAL_GL_LINEAR);
+    prodGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MAG_FILTER, LOCAL_GL_LINEAR);
+    prodGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_S, LOCAL_GL_CLAMP_TO_EDGE);
+    prodGL->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_T, LOCAL_GL_CLAMP_TO_EDGE);
+
     prodGL->fEGLImageTargetTexture2D(LOCAL_GL_TEXTURE_2D, image);
 
     egl->fDestroyImage(display, image);
 
-    SharedSurface_Gralloc *surf = new SharedSurface_Gralloc(prodGL, size, hasAlpha, egl, allocator, desc, prodTex);
+    SharedSurface_Gralloc *surf = new SharedSurface_Gralloc(prodGL, size, hasAlpha, egl, allocator, grallocTC, prodTex);
 
     DEBUG_PRINT("SharedSurface_Gralloc::Create: success -- surface %p, GraphicBuffer %p.\n", surf, buffer.get());
 
@@ -130,9 +142,6 @@ SharedSurface_Gralloc::~SharedSurface_Gralloc()
 
     mGL->MakeCurrent();
     mGL->fDeleteTextures(1, (GLuint*)&mProdTex);
-
-    SurfaceDescriptor desc(mDesc);
-    mAllocator->DestroySharedSurface(&desc);
 }
 
 void

@@ -58,11 +58,6 @@ let ImageCropper = {
     if (!aImageURL.startsWith("file://")) {
       return aImageURL;
     }
-    
-    if (Services.prefs.getBoolPref("lightweightThemes.animation.enabled")) {
-      //Don't crop if animated
-      return aImageURL;
-    }   
 
     // Generate the cropped image's file name using its
     // base name and the current screen size.

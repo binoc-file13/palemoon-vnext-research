@@ -33,6 +33,7 @@
 #include "TextInputHandler.h"
 #include "mozilla/HangMonitor.h"
 #include "GeckoProfiler.h"
+#include "pratom.h"
 
 #include "npapi.h"
 
@@ -734,7 +735,7 @@ NS_IMETHODIMP
 nsAppShell::Run(void)
 {
   NS_ASSERTION(!mStarted, "nsAppShell::Run() called multiple times");
-  if (mStarted)
+  if (mStarted || mTerminated)
     return NS_OK;
 
   mStarted = true;
@@ -839,7 +840,8 @@ nsAppShell::OnProcessNextEvent(nsIThreadInternal *aThread, bool aMayWait,
 // public
 NS_IMETHODIMP
 nsAppShell::AfterProcessNextEvent(nsIThreadInternal *aThread,
-                                  uint32_t aRecursionDepth)
+                                  uint32_t aRecursionDepth,
+                                  bool aEventWasProcessed)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -855,7 +857,8 @@ nsAppShell::AfterProcessNextEvent(nsIThreadInternal *aThread,
   ::CFArrayRemoveValueAtIndex(mAutoreleasePools, count - 1);
   [pool release];
 
-  return nsBaseAppShell::AfterProcessNextEvent(aThread, aRecursionDepth);
+  return nsBaseAppShell::AfterProcessNextEvent(aThread, aRecursionDepth,
+                                               aEventWasProcessed);
 
   NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
 }
@@ -951,7 +954,7 @@ nsAppShell::AfterProcessNextEvent(nsIThreadInternal *aThread,
     nsIRollupListener* rollupListener = nsBaseWidget::GetActiveRollupListener();
     nsCOMPtr<nsIWidget> rollupWidget = rollupListener->GetRollupWidget();
     if (rollupWidget)
-      rollupListener->Rollup(0, nullptr);
+      rollupListener->Rollup(0, nullptr, nullptr);
   }
 
   NS_OBJC_END_TRY_ABORT_BLOCK;

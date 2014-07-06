@@ -8,12 +8,16 @@
 #include "HttpLog.h"
 
 #include "nsHttpConnectionInfo.h"
+#include "mozilla/net/DNS.h"
+#include "prnetdb.h"
+
+namespace mozilla {
+namespace net {
 
 nsHttpConnectionInfo::nsHttpConnectionInfo(const nsACString &host, int32_t port,
                                            nsProxyInfo* proxyInfo,
                                            bool usingSSL)
-    : mRef(0)
-    , mProxyInfo(proxyInfo)
+    : mProxyInfo(proxyInfo)
     , mUsingSSL(usingSSL)
     , mUsingConnect(false)
 {
@@ -113,3 +117,22 @@ nsHttpConnectionInfo::UsingProxy()
     return !mProxyInfo->IsDirect();
 }
 
+bool
+nsHttpConnectionInfo::HostIsLocalIPLiteral() const
+{
+    PRNetAddr prAddr;
+    // If the host/proxy host is not an IP address literal, return false.
+    if (ProxyHost()) {
+        if (PR_StringToNetAddr(ProxyHost(), &prAddr) != PR_SUCCESS) {
+          return false;
+        }
+    } else if (PR_StringToNetAddr(Host(), &prAddr) != PR_SUCCESS) {
+        return false;
+    }
+    NetAddr netAddr;
+    PRNetAddrToNetAddr(&prAddr, &netAddr);
+    return IsIPAddrLocal(&netAddr);
+}
+
+} // namespace mozilla::net
+} // namespace mozilla

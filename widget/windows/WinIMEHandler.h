@@ -7,7 +7,6 @@
 #define WinIMEHandler_h_
 
 #include "nscore.h"
-#include "nsEvent.h"
 #include "nsIWidget.h"
 #include <windows.h>
 #include <inputscope.h>
@@ -19,6 +18,8 @@ class nsWindow;
 
 namespace mozilla {
 namespace widget {
+
+struct MSGResult;
 
 /**
  * IMEHandler class is a mediator class.  On Windows, there are two IME API
@@ -47,12 +48,10 @@ public:
   /**
    * When the message is not needed to handle anymore by the caller, this
    * returns true.  Otherwise, false.
-   * Additionally, if aEatMessage is true, the caller shouldn't call next
-   * wndproc anymore.
    */
   static bool ProcessMessage(nsWindow* aWindow, UINT aMessage,
                              WPARAM& aWParam, LPARAM& aLParam,
-                             LRESULT* aRetValue, bool& aEatMessage);
+                             MSGResult& aResult);
 
   /**
    * When there is a composition, returns true.  Otherwise, false.
@@ -102,6 +101,11 @@ public:
                               const InputContextAction& aAction);
 
   /**
+   * Associate or disassociate IME context to/from the aWindow.
+   */
+  static void AssociateIMEContext(nsWindow* aWindow, bool aEnable);
+
+  /**
    * Called when the window is created.
    */
   static void InitInputContext(nsWindow* aWindow, InputContext& aInputContext);
@@ -115,7 +119,7 @@ public:
 
 private:
 #ifdef NS_ENABLE_TSF
-  typedef HRESULT (WINAPI *SetInputScopesFunc)(HWND aindowHandle,
+  typedef HRESULT (WINAPI *SetInputScopesFunc)(HWND windowHandle,
                                                const InputScope *inputScopes,
                                                UINT numInputScopes,
                                                wchar_t **phrase_list,
@@ -126,6 +130,9 @@ private:
   static void SetInputScopeForIMM32(nsWindow* aWindow,
                                     const nsAString& aHTMLInputType);
   static bool sIsInTSFMode;
+  // If sIMMEnabled is false, any IME messages are not handled in TSF mode.
+  // Additionally, IME context is always disassociated from focused window.
+  static bool sIsIMMEnabled;
   static bool sPluginHasFocus;
 
   static bool IsTSFAvailable() { return (sIsInTSFMode && !sPluginHasFocus); }

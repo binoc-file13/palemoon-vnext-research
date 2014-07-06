@@ -32,6 +32,7 @@
 #include "jsalloc.h"
 
 #include "assembler/wtf/Platform.h"
+#include "jit/arm/Simulator-arm.h"
 #include "js/HashTable.h"
 #include "js/Vector.h"
 
@@ -84,7 +85,7 @@ namespace JSC {
 
   class ExecutableAllocator;
 
-  enum CodeKind { ION_CODE, BASELINE_CODE, REGEXP_CODE, ASMJS_CODE, OTHER_CODE };
+  enum CodeKind { ION_CODE, BASELINE_CODE, REGEXP_CODE, OTHER_CODE };
 
   // These are reference-counted. A new one starts with a count of 1.
   class ExecutablePool {
@@ -110,7 +111,6 @@ private:
     // Number of bytes currently used for Method and Regexp JIT code.
     size_t m_ionCodeBytes;
     size_t m_baselineCodeBytes;
-    size_t m_asmJSCodeBytes;
     size_t m_regexpCodeBytes;
     size_t m_otherCodeBytes;
 
@@ -133,9 +133,8 @@ public:
 
     ExecutablePool(ExecutableAllocator* allocator, Allocation a)
       : m_allocator(allocator), m_freePtr(a.pages), m_end(m_freePtr + a.size), m_allocation(a),
-        m_refCount(1), m_ionCodeBytes(0), m_baselineCodeBytes(0),
-        m_asmJSCodeBytes(0), m_regexpCodeBytes(0), m_otherCodeBytes(0),
-        m_destroy(false), m_gcNumber(0)
+        m_refCount(1), m_ionCodeBytes(0), m_baselineCodeBytes(0), m_regexpCodeBytes(0),
+        m_otherCodeBytes(0), m_destroy(false), m_gcNumber(0)
     { }
 
     ~ExecutablePool();
@@ -159,10 +158,9 @@ private:
         switch (kind) {
           case ION_CODE:      m_ionCodeBytes      += n;        break;
           case BASELINE_CODE: m_baselineCodeBytes += n;        break;
-          case ASMJS_CODE:    m_asmJSCodeBytes    += n;        break;
           case REGEXP_CODE:   m_regexpCodeBytes   += n;        break;
           case OTHER_CODE:    m_otherCodeBytes    += n;        break;
-          default:            JS_NOT_REACHED("bad code kind"); break;
+          default:            MOZ_ASSUME_UNREACHABLE("bad code kind");
         }
         return result;
     }
@@ -171,12 +169,12 @@ private:
         JS_ASSERT(m_end >= m_freePtr);
         return m_end - m_freePtr;
     }
-};
 
-enum AllocationBehavior
-{
-    AllocationCanRandomize,
-    AllocationDeterministic
+    void toggleAllCodeAsAccessible(bool accessible);
+
+    bool codeContains(char* address) {
+        return address >= m_allocation.pages && address < m_freePtr;
+    }
 };
 
 class ExecutableAllocator {
@@ -185,9 +183,8 @@ class ExecutableAllocator {
     DestroyCallback destroyCallback;
 
 public:
-    explicit ExecutableAllocator(AllocationBehavior allocBehavior)
-      : destroyCallback(NULL),
-        allocBehavior(allocBehavior)
+    ExecutableAllocator()
+      : destroyCallback(NULL)
     {
         if (!pageSize) {
             pageSize = determinePageSize();
@@ -209,15 +206,16 @@ public:
     {
         for (size_t i = 0; i < m_smallPools.length(); i++)
             m_smallPools[i]->release(/* willDestroy = */true);
-        // XXX: temporarily disabled because it fails;  see bug 654820.
-        //JS_ASSERT(m_pools.empty());     // if this asserts we have a pool leak
+
+        // If this asserts we have a pool leak.
+        JS_ASSERT_IF(m_pools.initialized(), m_pools.empty());
     }
 
     void purge() {
         for (size_t i = 0; i < m_smallPools.length(); i++)
             m_smallPools[i]->release();
 
-	m_smallPools.clear();
+        m_smallPools.clear();
     }
 
     // alloc() returns a pointer to some memory, and also (by reference) a
@@ -254,14 +252,12 @@ public:
         m_pools.remove(m_pools.lookup(pool));   // this asserts if |pool| is not in m_pools
     }
 
-    void sizeOfCode(JS::CodeSizes *sizes) const;
+    void addSizeOfCode(JS::CodeSizes *sizes) const;
+    void toggleAllCodeAsAccessible(bool accessible);
+    bool codeContains(char* address);
 
     void setDestroyCallback(DestroyCallback destroyCallback) {
         this->destroyCallback = destroyCallback;
-    }
-
-    void setRandomize(bool enabled) {
-        allocBehavior = enabled ? AllocationCanRandomize : AllocationDeterministic;
     }
 
 private:
@@ -401,6 +397,11 @@ public:
     static void cacheFlush(void*, size_t)
     {
     }
+#elif defined(JS_ARM_SIMULATOR)
+    static void cacheFlush(void *code, size_t size)
+    {
+        js::jit::Simulator::FlushICache(code, size);
+    }
 #elif WTF_CPU_MIPS
     static void cacheFlush(void* code, size_t size)
     {
@@ -496,7 +497,6 @@ private:
     typedef js::HashSet<ExecutablePool *, js::DefaultHasher<ExecutablePool *>, js::SystemAllocPolicy>
             ExecPoolHashSet;
     ExecPoolHashSet m_pools;    // All pools, just for stats purposes.
-    AllocationBehavior allocBehavior;
 
     static size_t determinePageSize();
 };

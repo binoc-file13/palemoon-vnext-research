@@ -16,12 +16,13 @@ import java.util.Set;
 import org.mozilla.gecko.background.common.log.Logger;
 import org.mozilla.gecko.sync.crypto.KeyBundle;
 import org.mozilla.gecko.sync.crypto.PersistedCrypto5Keys;
+import org.mozilla.gecko.sync.net.AuthHeaderProvider;
 import org.mozilla.gecko.sync.stage.GlobalSyncStage.Stage;
 
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 
-public class SyncConfiguration implements CredentialsSource {
+public class SyncConfiguration {
 
   public class EditorBranch implements Editor {
 
@@ -174,22 +175,18 @@ public class SyncConfiguration implements CredentialsSource {
     }
   }
 
-  public static final String DEFAULT_USER_API = "https://auth.services.mozilla.com/user/1.0/";
-
   private static final String LOG_TAG = "SyncConfiguration";
 
   // These must be set in GlobalSession's constructor.
-  public String          userAPI;
-  public URI             serverURL;
   public URI             clusterURL;
-  public String          username;
   public KeyBundle       syncKeyBundle;
 
   public CollectionKeys  collectionKeys;
   public InfoCollections infoCollections;
   public MetaGlobal      metaGlobal;
-  public String          password;
   public String          syncID;
+
+  protected final String username;
 
   /**
    * Persisted collection of enabledEngineNames.
@@ -237,11 +234,9 @@ public class SyncConfiguration implements CredentialsSource {
   public Map<String, Boolean> userSelectedEngines;
   public long userSelectedEnginesTimestamp;
 
-  // Fields that maintain a reference to a SharedPreferences instance, used for
-  // persistence.
-  // Behavior is undefined if the PrefsSource is switched out in flight.
-  public String          prefsPath;
-  public PrefsSource     prefsSource;
+  public SharedPreferences prefs;
+
+  protected final AuthHeaderProvider authHeaderProvider;
 
   public static final String PREF_PREFS_VERSION = "prefs.version";
   public static final long CURRENT_PREFS_VERSION = 1;
@@ -256,26 +251,40 @@ public class SyncConfiguration implements CredentialsSource {
   public static final String PREF_USER_SELECTED_ENGINES_TO_SYNC = "userSelectedEngines";
   public static final String PREF_USER_SELECTED_ENGINES_TO_SYNC_TIMESTAMP = "userSelectedEnginesTimestamp";
 
-  public static final String PREF_EARLIEST_NEXT_SYNC = "earliestnextsync";
   public static final String PREF_CLUSTER_URL_IS_STALE = "clusterurlisstale";
 
   public static final String PREF_ACCOUNT_GUID = "account.guid";
   public static final String PREF_CLIENT_NAME = "account.clientName";
   public static final String PREF_NUM_CLIENTS = "account.numClients";
 
+  private static final String API_VERSION = "1.5";
+
   /**
    * Create a new SyncConfiguration instance. Pass in a PrefsSource to
    * provide access to preferences.
    */
-  public SyncConfiguration(String prefsPath, PrefsSource prefsSource) {
-    this.prefsPath   = prefsPath;
-    this.prefsSource = prefsSource;
-    this.loadFromPrefs(getPrefs());
+  public SyncConfiguration(String username, AuthHeaderProvider authHeaderProvider, String prefsPath, PrefsSource prefsSource) {
+    this(username, authHeaderProvider, prefsSource.getPrefs(prefsPath, Utils.SHARED_PREFERENCES_MODE));
+  }
+
+  public SyncConfiguration(String username, AuthHeaderProvider authHeaderProvider, SharedPreferences prefs) {
+    this.username = username;
+    this.authHeaderProvider = authHeaderProvider;
+    this.prefs = prefs;
+    this.loadFromPrefs(prefs);
+  }
+
+  public SyncConfiguration(String username, AuthHeaderProvider authHeaderProvider, SharedPreferences prefs, KeyBundle syncKeyBundle) {
+    this(username, authHeaderProvider, prefs);
+    this.syncKeyBundle = syncKeyBundle;
+  }
+
+  public String getAPIVersion() {
+    return API_VERSION;
   }
 
   public SharedPreferences getPrefs() {
-    Logger.trace(LOG_TAG, "Returning prefs for " + prefsPath);
-    return prefsSource.getPrefs(prefsPath, Utils.SHARED_PREFERENCES_MODE);
+    return this.prefs;
   }
 
   /**
@@ -437,9 +446,8 @@ public class SyncConfiguration implements CredentialsSource {
     // TODO: keys.
   }
 
-  @Override
-  public String credentials() {
-    return username + ":" + password;
+  public AuthHeaderProvider getAuthHeaderProvider() {
+    return authHeaderProvider;
   }
 
   public CollectionKeys getCollectionKeys() {
@@ -450,23 +458,17 @@ public class SyncConfiguration implements CredentialsSource {
     collectionKeys = k;
   }
 
-  public String nodeWeaveURL() {
-    return this.nodeWeaveURL((this.serverURL == null) ? null : this.serverURL.toASCIIString());
-  }
-
-  public String nodeWeaveURL(String serverURL) {
-    String userPart = username + "/node/weave";
-    if (serverURL == null) {
-      return DEFAULT_USER_API + userPart;
-    }
-    if (!serverURL.endsWith("/")) {
-      serverURL = serverURL + "/";
-    }
-    return serverURL + "user/1.0/" + userPart;
+  /**
+   * Return path to storage endpoint without trailing slash.
+   *
+   * @return storage endpoint without trailing slash.
+   */
+  public String storageURL() {
+    return clusterURL + "/storage";
   }
 
   protected String infoBaseURL() {
-    return clusterURL + GlobalSession.API_VERSION + "/" + username + "/info/";
+    return clusterURL + "/info/";
   }
 
   public String infoCollectionsURL() {
@@ -478,16 +480,11 @@ public class SyncConfiguration implements CredentialsSource {
   }
 
   public String metaURL() {
-    return clusterURL + GlobalSession.API_VERSION + "/" + username + "/storage/meta/global";
-  }
-
-  public String storageURL(boolean trailingSlash) {
-    return clusterURL + GlobalSession.API_VERSION + "/" + username +
-           (trailingSlash ? "/storage/" : "/storage");
+    return storageURL() + "/meta/global";
   }
 
   public URI collectionURI(String collection) throws URISyntaxException {
-    return new URI(storageURL(true) + collection);
+    return new URI(storageURL() + "/" + collection);
   }
 
   public URI collectionURI(String collection, boolean full) throws URISyntaxException {
@@ -502,12 +499,12 @@ public class SyncConfiguration implements CredentialsSource {
       }
       uriParams = params.toString();
     }
-    String uri = storageURL(true) + collection + uriParams;
+    String uri = storageURL() + "/" + collection + uriParams;
     return new URI(uri);
   }
 
   public URI wboURI(String collection, String id) throws URISyntaxException {
-    return new URI(storageURL(true) + collection + "/" + id);
+    return new URI(storageURL() + "/" + collection + "/" + id);
   }
 
   public URI keysURI() throws URISyntaxException {
@@ -525,35 +522,8 @@ public class SyncConfiguration implements CredentialsSource {
     return clusterURL.toASCIIString();
   }
 
-  protected void setAndPersistClusterURL(URI u, SharedPreferences prefs) {
-    boolean shouldPersist = (prefs != null) && (clusterURL == null);
-
-    Logger.trace(LOG_TAG, "Setting cluster URL to " + u.toASCIIString() +
-                          (shouldPersist ? ". Persisting." : ". Not persisting."));
-    clusterURL = u;
-    if (shouldPersist) {
-      Editor edit = prefs.edit();
-      edit.putString(PREF_CLUSTER_URL, clusterURL.toASCIIString());
-      edit.commit();
-    }
-  }
-
-  protected void setClusterURL(URI u, SharedPreferences prefs) {
-    if (u == null) {
-      Logger.warn(LOG_TAG, "Refusing to set cluster URL to null.");
-      return;
-    }
-    URI uri = u.normalize();
-    if (uri.toASCIIString().endsWith("/")) {
-      setAndPersistClusterURL(u, prefs);
-      return;
-    }
-    setAndPersistClusterURL(uri.resolve("/"), prefs);
-    Logger.trace(LOG_TAG, "Set cluster URL to " + clusterURL.toASCIIString() + ", given input " + u.toASCIIString());
-  }
-
   public void setClusterURL(URI u) {
-    setClusterURL(u, this.getPrefs());
+    this.clusterURL = u;
   }
 
   /**

@@ -341,11 +341,10 @@ private:
   {
     MOZ_ASSERT(!mFlags.mHasHashedFrames);
     uint32_t count = GetChildCount();
-    mFrames = new nsTHashtable< nsPtrHashKey<nsIFrame> >();
     mFlags.mHasHashedFrames = 1;
     uint32_t minSize =
       std::max(kMinChildCountForHashtable, uint32_t(PL_DHASH_MIN_SIZE));
-    mFrames->Init(std::max(count, minSize));
+    mFrames = new nsTHashtable< nsPtrHashKey<nsIFrame> >(std::max(count, minSize));
     for (nsIFrame* f = mFirstChild; count-- > 0; f = f->GetNextSibling()) {
       mFrames->PutEntry(f);
     }
@@ -497,10 +496,11 @@ public:
                                     nsIFrame* aLastFrameBeforeEnd,
                                     int32_t* aFrameIndexInLine);
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   char* StateToString(char* aBuf, int32_t aBufSize) const;
 
   void List(FILE* out, int32_t aIndent, uint32_t aFlags = 0) const;
+  void List(FILE* out = stderr, const char* aPrefix = "", uint32_t aFlags = 0) const;
   nsIFrame* LastChild() const;
 #endif
 

@@ -13,7 +13,6 @@
 
 #include "mozilla/Attributes.h"
 #include "nsContainerFrame.h"
-#include "nsGkAtoms.h"
 
 class nsPresContext;
 
@@ -78,7 +77,7 @@ public:
    */
   nsRect AdjustReflowStateAsContainingBlock(nsHTMLReflowState* aReflowState) const;
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const MOZ_OVERRIDE;
 #endif
 

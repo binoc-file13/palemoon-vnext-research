@@ -14,6 +14,7 @@ interface nsIMessageSender;
 interface nsIVariant;
 interface nsIDOMElement;
 interface nsITabParent;
+interface nsILoadContext;
 
 typedef unsigned long long nsContentViewId;
 
@@ -111,7 +112,7 @@ interface nsIContentViewManager : nsISupports
   readonly attribute nsIContentView rootContentView;
 };
 
-[scriptable, builtinclass, uuid(e4333e51-f2fa-4fdd-becd-75d000703355)]
+[scriptable, builtinclass, uuid(4c9f91c0-7a5d-11e3-981f-0800200c9a66)]
 interface nsIFrameLoader : nsISupports
 {
   /**
@@ -124,6 +125,13 @@ interface nsIFrameLoader : nsISupports
    * returns null.
    */
   readonly attribute nsITabParent tabParent;
+
+  /**
+   * Get an nsILoadContext for the top-level docshell. For remote
+   * frames, a shim is returned that contains private browsing and app
+   * information.
+   */
+  readonly attribute nsILoadContext loadContext;
 
   /**
    * Start loading the frame. This method figures out what to load
@@ -256,6 +264,13 @@ interface nsIFrameLoader : nsISupports
    * returns the iframe element.
    */
   readonly attribute nsIDOMElement ownerElement;
+
+
+  /**
+   * Cached childID of the ContentParent owning the TabParent in this frame
+   * loader. This can be used to obtain the childID after the TabParent died.
+   */
+  readonly attribute unsigned long long childID;
 
   /**
    * Get or set this frame loader's visibility.

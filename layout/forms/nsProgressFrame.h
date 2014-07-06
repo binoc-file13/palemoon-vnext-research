@@ -16,6 +16,8 @@ class nsBaseContentList;
 class nsProgressFrame : public nsContainerFrame,
                         public nsIAnonymousContentCreator
 {
+  typedef mozilla::dom::Element Element;
+
 public:
   NS_DECL_QUERYFRAME_TARGET(nsProgressFrame)
   NS_DECL_QUERYFRAME
@@ -35,7 +37,7 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus) MOZ_OVERRIDE;
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const MOZ_OVERRIDE {
     return MakeFrameName(NS_LITERAL_STRING("Progress"), aResult);
   }
@@ -71,6 +73,8 @@ public:
    */
   bool ShouldUseNativeStyle() const;
 
+  virtual Element* GetPseudoElement(nsCSSPseudoElements::Type aType) MOZ_OVERRIDE;
+
 protected:
   // Helper function which reflow the anonymous div frame.
   void ReflowBarFrame(nsIFrame*                aBarFrame,
@@ -82,7 +86,7 @@ protected:
    * The div used to show the progress bar.
    * @see nsProgressFrame::CreateAnonymousContent
    */
-  nsCOMPtr<nsIContent> mBarDiv;
+  nsCOMPtr<Element> mBarDiv;
 };
 
 #endif

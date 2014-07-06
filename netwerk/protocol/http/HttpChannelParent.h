@@ -17,7 +17,7 @@
 #include "nsIProgressEventSink.h"
 #include "nsHttpChannel.h"
 
-class nsICacheEntryDescriptor;
+class nsICacheEntry;
 class nsIAssociatedContentSecurity;
 
 namespace mozilla {
@@ -77,28 +77,28 @@ protected:
                    const nsCString&           appCacheClientID,
                    const bool&                allowSpdy);
 
-  virtual bool RecvSetPriority(const uint16_t& priority);
-  virtual bool RecvSetCacheTokenCachedCharset(const nsCString& charset);
-  virtual bool RecvSuspend();
-  virtual bool RecvResume();
-  virtual bool RecvCancel(const nsresult& status);
+  virtual bool RecvSetPriority(const uint16_t& priority) MOZ_OVERRIDE;
+  virtual bool RecvSetCacheTokenCachedCharset(const nsCString& charset) MOZ_OVERRIDE;
+  virtual bool RecvSuspend() MOZ_OVERRIDE;
+  virtual bool RecvResume() MOZ_OVERRIDE;
+  virtual bool RecvCancel(const nsresult& status) MOZ_OVERRIDE;
   virtual bool RecvRedirect2Verify(const nsresult& result,
                                    const RequestHeaderTuples& changedHeaders,
-                                   const OptionalURIParams&   apiRedirectUri);
+                                   const OptionalURIParams& apiRedirectUri) MOZ_OVERRIDE;
   virtual bool RecvUpdateAssociatedContentSecurity(const int32_t& broken,
-                                                   const int32_t& no);
-  virtual bool RecvDocumentChannelCleanup();
-  virtual bool RecvMarkOfflineCacheEntryAsForeign();
+                                                   const int32_t& no) MOZ_OVERRIDE;
+  virtual bool RecvDocumentChannelCleanup() MOZ_OVERRIDE;
+  virtual bool RecvMarkOfflineCacheEntryAsForeign() MOZ_OVERRIDE;
 
-  virtual void ActorDestroy(ActorDestroyReason why);
+  virtual void ActorDestroy(ActorDestroyReason why) MOZ_OVERRIDE;
 
 protected:
-  friend class mozilla::net::HttpChannelParentListener;
+  friend class HttpChannelParentListener;
   nsRefPtr<mozilla::dom::TabParent> mTabParent;
 
 private:
   nsCOMPtr<nsIChannel>                    mChannel;
-  nsCOMPtr<nsICacheEntryDescriptor>       mCacheDescriptor;
+  nsCOMPtr<nsICacheEntry>       mCacheEntry;
   nsCOMPtr<nsIAssociatedContentSecurity>  mAssociatedContentSecurity;
   bool mIPCClosed;                // PHttpChannel actor has been Closed()
 
@@ -120,6 +120,7 @@ private:
   PBOverrideStatus mPBOverride;
 
   nsCOMPtr<nsILoadContext> mLoadContext;
+  nsRefPtr<nsHttpHandler>  mHttpHandler;
 };
 
 } // namespace net

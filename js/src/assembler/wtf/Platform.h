@@ -210,6 +210,13 @@
 #define WTF_CPU_BIG_ENDIAN 1
 #endif
 
+#if defined(__aarch64__)
+#define WTF_CPU_AARCH64 1
+#if defined(__AARCH64EB__)
+#define WTF_CPU_BIG_ENDIAN 1
+#endif
+#endif
+
 /* WTF_CPU_X86 - i386 / x86 32-bit */
 #if   defined(__i386__) \
     || defined(i386)     \
@@ -358,6 +365,13 @@
 #endif
 
 #endif /* ARM */
+
+#if defined(JS_ARM_SIMULATOR)
+#  undef WTF_CPU_X86
+#  undef WTF_CPU_X64
+#  define WTF_CPU_ARM_TRADITIONAL 1
+#  define WTF_CPU_ARM 1
+#endif
 
 #if WTF_CPU_ARM || WTF_CPU_MIPS
 #define WTF_CPU_NEEDS_ALIGNED_ACCESS 1
@@ -1220,7 +1234,7 @@
 #endif
 
 #if ENABLE_GLIB_SUPPORT
-#include "GTypedefs.h"
+//#include "GTypedefs.h"
 #endif
 
 /* FIXME: This define won't be needed once #27551 is fully landed. However, 

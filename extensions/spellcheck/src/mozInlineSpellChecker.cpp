@@ -59,7 +59,6 @@
 #include "nsUnicharUtils.h"
 #include "nsIContent.h"
 #include "nsEventListenerManager.h"
-#include "nsGUIEvent.h"
 #include "nsRange.h"
 #include "nsContentUtils.h"
 #include "nsEditor.h"
@@ -947,7 +946,8 @@ mozInlineSpellChecker::ReplaceWord(nsIDOMNode *aNode, int32_t aOffset,
     editor->DeleteSelection(nsIEditor::eNone, nsIEditor::eStrip);
 
     nsCOMPtr<nsIPlaintextEditor> textEditor(do_QueryReferent(mEditor));
-    textEditor->InsertText(newword);
+    if (textEditor)
+      textEditor->InsertText(newword);
 
     editor->EndTransaction();
   }
@@ -1009,7 +1009,7 @@ mozInlineSpellChecker::IgnoreWord(const nsAString &word)
 // mozInlineSpellChecker::IgnoreWords
 
 NS_IMETHODIMP
-mozInlineSpellChecker::IgnoreWords(const PRUnichar **aWordsToIgnore,
+mozInlineSpellChecker::IgnoreWords(const char16_t **aWordsToIgnore,
                                    uint32_t aCount)
 {
   NS_ENSURE_TRUE(mSpellCheck, NS_ERROR_NOT_INITIALIZED);

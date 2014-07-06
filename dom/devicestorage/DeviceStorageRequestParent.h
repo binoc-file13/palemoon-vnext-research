@@ -36,7 +36,8 @@ protected:
   ~DeviceStorageRequestParent();
 
 private:
-  nsAutoRefCnt mRefCnt;
+  ThreadSafeAutoRefCnt mRefCnt;
+  NS_DECL_OWNINGTHREAD
   DeviceStorageParams mParams;
 
   class CancelableRunnable : public nsRunnable
@@ -118,6 +119,16 @@ private:
       InfallibleTArray<DeviceStorageFileValue> mPaths;
   };
 
+  class CreateFdEvent : public CancelableRunnable
+  {
+    public:
+      CreateFdEvent(DeviceStorageRequestParent* aParent, DeviceStorageFile* aFile);
+      virtual ~CreateFdEvent();
+      virtual nsresult CancelableRun();
+    private:
+      nsRefPtr<DeviceStorageFile> mFile;
+  };
+
   class WriteFileEvent : public CancelableRunnable
   {
     public:
@@ -192,6 +203,18 @@ private:
       nsString mPath;
   };
 
+  class PostFileDescriptorResultEvent : public CancelableRunnable
+  {
+    public:
+      PostFileDescriptorResultEvent(DeviceStorageRequestParent* aParent,
+                                    const FileDescriptor& aFileDescriptor);
+      virtual ~PostFileDescriptorResultEvent();
+      virtual nsresult CancelableRun();
+    private:
+      nsRefPtr<DeviceStorageFile> mFile;
+      FileDescriptor mFileDescriptor;
+  };
+
  class PostFreeSpaceResultEvent : public CancelableRunnable
  {
     public:
@@ -221,6 +244,16 @@ private:
     public:
       PostAvailableResultEvent(DeviceStorageRequestParent* aParent, DeviceStorageFile* aFile);
       virtual ~PostAvailableResultEvent();
+      virtual nsresult CancelableRun();
+    private:
+      nsRefPtr<DeviceStorageFile> mFile;
+ };
+
+ class PostFormatResultEvent : public CancelableRunnable
+ {
+    public:
+      PostFormatResultEvent(DeviceStorageRequestParent* aParent, DeviceStorageFile* aFile);
+      virtual ~PostFormatResultEvent();
       virtual nsresult CancelableRun();
     private:
       nsRefPtr<DeviceStorageFile> mFile;

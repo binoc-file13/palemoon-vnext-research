@@ -146,22 +146,25 @@ struct already_AddRefed
       |nsCOMPtr_helper|.
     */
   {
-#ifdef MOZ_HAVE_CXX11_NULLPTR
-    /* We use decltype(nullptr) instead of std::nullptr_t because the standard
-     * library might be old, and to save including <cstddef>.  All compilers
-     * that support nullptr seem to support decltype. */
-    already_AddRefed(decltype(nullptr) aNullPtr)
+    /*
+     * Prohibit all one-argument overloads but already_AddRefed(T*) and
+     * already_AddRefed(decltype(nullptr)), and funnel the nullptr case through
+     * the T* constructor.
+     */
+    template<typename N>
+    already_AddRefed(N,
+                     typename mozilla::EnableIf<mozilla::IsNullPointer<N>::value,
+                                                int>::Type dummy = 0)
       : mRawPtr(nullptr)
     {
+      // nothing else to do here
     }
 
-    explicit
-#endif
     already_AddRefed( T* aRawPtr )
-        : mRawPtr(aRawPtr)
-      {
-        // nothing else to do here
-      }
+      : mRawPtr(aRawPtr)
+    {
+      // nothing else to do here
+    }
 
     T* get() const { return mRawPtr; }
 
@@ -184,7 +187,7 @@ struct already_AddRefed
     operator already_AddRefed<U>()
     {
       U* tmp = mRawPtr;
-      mRawPtr = NULL;
+      mRawPtr = nullptr;
       return already_AddRefed<U>(tmp);
     }
 
@@ -216,26 +219,6 @@ struct already_AddRefed
 
     T* mRawPtr;
   };
-
-template <class T>
-inline
-const already_AddRefed<T>
-getter_AddRefs( T* aRawPtr )
-    /*
-      ...makes typing easier, because it deduces the template type, e.g., 
-      you write |dont_AddRef(fooP)| instead of |already_AddRefed<IFoo>(fooP)|.
-    */
-  {
-    return already_AddRefed<T>(aRawPtr);
-  }
-
-template <class T>
-inline
-const already_AddRefed<T>
-getter_AddRefs( const already_AddRefed<T> aAlreadyAddRefedPtr )
-  {
-    return aAlreadyAddRefedPtr;
-  }
 
 template <class T>
 inline
@@ -594,8 +577,8 @@ class nsCOMPtr MOZ_FINAL
           // construct from |dont_AddRef(expr)|
         {
           // But make sure that U actually inherits from T
-          MOZ_STATIC_ASSERT((mozilla::IsBaseOf<T, U>::value),
-                            "U is not a subclass of T");
+          static_assert(mozilla::IsBaseOf<T, U>::value,
+                        "U is not a subclass of T");
           NSCAP_LOG_ASSIGNMENT(this, static_cast<T*>(aSmartPtr.mRawPtr));
           NSCAP_ASSERT_NO_QUERY_NEEDED();
         }
@@ -684,8 +667,8 @@ class nsCOMPtr MOZ_FINAL
           // assign from |dont_AddRef(expr)|
         {
           // Make sure that U actually inherits from T
-          MOZ_STATIC_ASSERT((mozilla::IsBaseOf<T, U>::value),
-                            "U is not a subclass of T");
+          static_assert(mozilla::IsBaseOf<T, U>::value,
+                        "U is not a subclass of T");
           assign_assuming_AddRef(static_cast<T*>(rhs.mRawPtr));
           NSCAP_ASSERT_NO_QUERY_NEEDED();
           return *this;

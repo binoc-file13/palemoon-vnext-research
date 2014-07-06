@@ -2,15 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-.inner {
-  background-color: #eef2f5;
-  min-height: 3.8em;
-  padding: 0.5em;
-
-  /* make room for the favicon */
-  -moz-margin-start: 4.5em;
-}
-
 .details {
   width: 100%;
 }
@@ -34,7 +25,9 @@
 }
 
 #header-button {
-  background-image: url("chrome://browser/skin/images/addons-amo-hdpi.png");
+  background-image: url("chrome://browser/skin/images/amo-logo.png"), url("chrome://browser/skin/images/chevron.png");
+  background-size: 20px 20px, 8px 20px;
+  background-position: left, right 3px center;
 }
 
 .description {
@@ -245,4 +238,36 @@ setting[type="radio"],
 setting[type="menulist"] {
   display: -moz-box;
   -moz-binding: url("chrome://mozapps/content/extensions/setting.xml#setting-multi");
+}
+
+.hide-on-enable,
+.show-on-error,
+.show-on-uninstall,
+.show-on-install,
+.show-on-restart,
+div[isDisabled="true"] .hide-on-disable {
+  display: none;
+}
+
+div[error] .show-on-error,
+div[opType="needs-restart"] .show-on-restart,
+div[opType="needs-uninstall"] .show-on-uninstall,
+div[opType="needs-install"] .show-on-install,
+div[opType="needs-enable"] .show-on-enable,
+div[opType="needs-disable"] .show-on-disable,
+div[isDisabled="true"] .show-on-disable {
+  display: -moz-box;
+}
+
+div[opType="needs-restart"] .hide-on-restart,
+div[opType="needs-uninstall"] .hide-on-uninstall,
+div[isDisabled="true"][opType="needs-uninstall"],
+div[opType="needs-install"] .hide-on-install,
+div[opType="needs-enable"] .hide-on-enable,
+div[opType="needs-disable"] .hide-on-disable {
+  display: none;
+}
+
+#addons-list, #addons-details {
+  display: none;
 }

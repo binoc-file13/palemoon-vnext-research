@@ -9,7 +9,7 @@ user_pref("browser.ui.layout.tablet", 0); // force tablet UI off
 user_pref("dom.allow_scripts_to_close_windows", true);
 user_pref("dom.disable_open_during_load", false);
 user_pref("dom.experimental_forms", true); // on for testing
-user_pref("dom.experimental_forms_range", true); // on for testing
+user_pref("dom.forms.number", true); // on for testing
 user_pref("dom.forms.color", true); // on for testing
 user_pref("dom.max_script_run_time", 0); // no slow script dialogs
 user_pref("hangmonitor.timeout", 0); // no hang monitor
@@ -27,7 +27,6 @@ user_pref("devtools.errorconsole.enabled", true);
 user_pref("devtools.debugger.remote-port", 6023);
 user_pref("layout.debug.enable_data_xbl", true);
 user_pref("browser.EULA.override", true);
-user_pref("javascript.options.jit_hardening", true);
 user_pref("gfx.color_management.force_srgb", true);
 user_pref("network.manage-offline-status", false);
 user_pref("dom.min_background_timeout_value", 1000);
@@ -57,10 +56,12 @@ user_pref("extensions.enabledScopes", 5);
 user_pref("extensions.getAddons.cache.enabled", false);
 // Disable intalling any distribution add-ons
 user_pref("extensions.installDistroAddons", false);
+// XPI extensions are required for test harnesses to load
+user_pref("extensions.defaultProviders.enabled", true);
 
 user_pref("geo.wifi.uri", "http://%(server)s/tests/dom/tests/mochitest/geolocation/network_geolocation.sjs");
 user_pref("geo.wifi.testing", true);
-user_pref("geo.ignore.location_filter", true);
+user_pref("geo.wifi.logging.enabled", true);
 
 user_pref("camino.warn_when_closing", false); // Camino-only, harmless to others
 
@@ -68,7 +69,6 @@ user_pref("camino.warn_when_closing", false); // Camino-only, harmless to others
 user_pref("urlclassifier.updateinterval", 172800);
 // Point the url-classifier to the local testing server for fast failures
 user_pref("browser.safebrowsing.gethashURL", "http://%(server)s/safebrowsing-dummy/gethash");
-user_pref("browser.safebrowsing.keyURL", "http://%(server)s/safebrowsing-dummy/newkey");
 user_pref("browser.safebrowsing.updateURL", "http://%(server)s/safebrowsing-dummy/update");
 // Point update checks to the local testing server for fast failures
 user_pref("extensions.update.url", "http://%(server)s/extensions-dummy/updateURL");
@@ -122,7 +122,6 @@ user_pref("dom.global-constructor.disable.mozContact", false);
 
 // Enable mozSettings
 user_pref("dom.mozSettings.enabled", true);
-user_pref("dom.navigator-property.disable.mozSettings", false);
 
 // Make sure the disk cache doesn't get auto disabled
 user_pref("network.http.bypass-cachelock-threshold", 200000);
@@ -142,5 +141,34 @@ user_pref("media.webaudio.legacy.BiquadFilterNode", true);
 user_pref("media.webaudio.legacy.PannerNode", true);
 user_pref("media.webaudio.legacy.OscillatorNode", true);
 
-// We want to collect telemetry, but we don't want to send in the results.
-user_pref('toolkit.telemetry.server', 'https://%(server)s/telemetry-dummy/');
+// Always use network provider for geolocation tests
+// so we bypass the OSX dialog raised by the corelocation provider
+user_pref("geo.provider.testing", true);
+
+// Background thumbnails in particular cause grief, and disabling thumbnails
+// in general can't hurt - we re-enable them when tests need them.
+user_pref("browser.pagethumbnails.capturing_disabled", true);
+
+// Indicate that the download panel has been shown once so that whichever
+// download test runs first doesn't show the popup inconsistently.
+user_pref("browser.download.panel.shown", true);
+
+// prefs for firefox metro.
+// Disable first-tun tab
+user_pref("browser.firstrun.count", 0);
+
+// Enable webapps testing mode, which bypasses native installation.
+user_pref("browser.webapps.testing", true);
+
+// Disable android snippets
+user_pref("browser.snippets.enabled", false);
+user_pref("browser.snippets.syncPromo.enabled", false);
+
+// Don't connect to Yahoo! for RSS feed tests.
+// en-US only uses .types.0.uri, but set all of them just to be sure.
+user_pref('browser.contentHandlers.types.0.uri', 'http://test1.example.org/rss?url=%%s')
+user_pref('browser.contentHandlers.types.1.uri', 'http://test1.example.org/rss?url=%%s')
+user_pref('browser.contentHandlers.types.2.uri', 'http://test1.example.org/rss?url=%%s')
+user_pref('browser.contentHandlers.types.3.uri', 'http://test1.example.org/rss?url=%%s')
+user_pref('browser.contentHandlers.types.4.uri', 'http://test1.example.org/rss?url=%%s')
+user_pref('browser.contentHandlers.types.5.uri', 'http://test1.example.org/rss?url=%%s')

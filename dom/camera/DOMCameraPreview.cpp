@@ -191,8 +191,7 @@ DOMCameraPreview::ReceiveFrame(void* aBuffer, ImageFormat aFormat, FrameBuilder 
     return false;
   }
 
-  ImageFormat format = aFormat;
-  nsRefPtr<Image> image = mImageContainer->CreateImage(&format, 1);
+  nsRefPtr<Image> image = mImageContainer->CreateImage(aFormat);
   aBuilder(image, aBuffer, mWidth, mHeight);
 
   mInput->SetCurrentFrame(gfxIntSize(mWidth, mHeight), image);
@@ -286,6 +285,8 @@ DOMCameraPreview::Stopped(bool aForced)
   if (mState != STOPPING && !aForced) {
     return;
   }
+
+  mInput->ClearCurrentFrame();
 
   DOM_CAMERA_LOGI("Dispatching preview stream stopped\n");
   nsCOMPtr<nsIRunnable> stopped = new PreviewControl(this, PreviewControl::STOPPED);

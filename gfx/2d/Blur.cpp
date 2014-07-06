@@ -9,15 +9,9 @@
 #include <algorithm>
 #include <math.h>
 #include <string.h>
-#ifdef WIN32
-#include <windows.h>
-#else
-#include "nspr.h"
-#endif
 
 #include "mozilla/CheckedInt.h"
 #include "mozilla/Constants.h"
-#include "mozilla/Util.h"
 
 #include "2D.h"
 #include "Tools.h"
@@ -26,68 +20,6 @@ using namespace std;
 
 namespace mozilla {
 namespace gfx {
-
-static uint32_t NumberOfProcessors = 0;
-
-
-#ifdef WIN32
-static void
-GetNumberOfLogicalProcessors(void)
-{
-    SYSTEM_INFO SystemInfo;
-
-    GetSystemInfo(&SystemInfo);
-    NumberOfProcessors = SystemInfo.dwNumberOfProcessors;
-}
-#endif
-
-static void
-GetNumberOfProcessors(void)
-{
-#ifdef WIN32
-    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION SystemLogicalProcessorInformation = NULL;
-    DWORD SizeSystemLogicalProcessorInformation = 0;
-
-    while(!GetLogicalProcessorInformation(SystemLogicalProcessorInformation, &SizeSystemLogicalProcessorInformation)) {
-        if(SystemLogicalProcessorInformation) free(SystemLogicalProcessorInformation);
-
-        if(GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-            SystemLogicalProcessorInformation =
-                static_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION>(malloc(SizeSystemLogicalProcessorInformation));
-        } else {
-            GetNumberOfLogicalProcessors();
-            return;
-        }
-    }
-
-    DWORD ProcessorCore = 0;
-    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION Ptr = SystemLogicalProcessorInformation;
-
-    for(DWORD Offset = sizeof SYSTEM_LOGICAL_PROCESSOR_INFORMATION;
-        Offset <= SizeSystemLogicalProcessorInformation;
-        Offset += sizeof SYSTEM_LOGICAL_PROCESSOR_INFORMATION) {
-        if(Ptr++->Relationship == RelationProcessorCore) ProcessorCore++;
-    }
-
-    free(SystemLogicalProcessorInformation);
-
-    if(ProcessorCore) {
-        NumberOfProcessors = ProcessorCore;
-    } else {
-        GetNumberOfLogicalProcessors();
-    }
-#else
-    //Use fallback check on non-windows
-    NumberOfProcessors = PR_GetNumberOfProcessors();
-    
-    if (NumberOfProcessors == 0 || !NumberOfProcessors)
-      NumberOfProcessors = 1;
-      
-    if (NumberOfProcessors > 8)
-      NumberOfProcessors = 8;
-    
-#endif  
-}
 
 /**
  * Box blur involves looking at one pixel, and setting its value to the average
@@ -101,7 +33,6 @@ GetNumberOfProcessors(void)
  * @param aSkipRect An area to skip blurring in.
  * XXX shouldn't we pass stride in separately here?
  */
- 
 static void
 BoxBlurHorizontal(unsigned char* aInput,
                   unsigned char* aOutput,
@@ -120,10 +51,6 @@ BoxBlurHorizontal(unsigned char* aInput,
         memcpy(aOutput, aInput, aWidth*aRows);
         return;
     }
-    
-    // Pale Moon: Processor check.
-    if(NumberOfProcessors == 0) GetNumberOfProcessors();
-    
     uint32_t reciprocal = uint32_t((uint64_t(1) << 32) / boxSize);
 
     for (int32_t y = 0; y < aRows; y++) {
@@ -136,9 +63,8 @@ BoxBlurHorizontal(unsigned char* aInput,
             y = aSkipRect.YMost() - 1;
             continue;
         }
-        
+
         uint32_t alphaSum = 0;
-#pragma loop(hint_parallel(0))
         for (int32_t i = 0; i < boxSize; i++) {
             int32_t pos = i - aLeftLobe;
             // See assertion above; if aWidth is zero, then we would have no
@@ -147,7 +73,6 @@ BoxBlurHorizontal(unsigned char* aInput,
             pos = min(pos, aWidth - 1);
             alphaSum += aInput[aWidth * y + pos];
         }
-#pragma loop(hint_parallel(0))
         for (int32_t x = 0; x < aWidth; x++) {
             // Check whether we are within the skip rect. If so, go
             // to the next point outside the skip rect.
@@ -215,7 +140,6 @@ BoxBlurVertical(unsigned char* aInput,
         }
 
         uint32_t alphaSum = 0;
-#pragma loop(hint_parallel(0))
         for (int32_t i = 0; i < boxSize; i++) {
             int32_t pos = i - aTopLobe;
             // See assertion above; if aRows is zero, then we would have no
@@ -224,7 +148,6 @@ BoxBlurVertical(unsigned char* aInput,
             pos = min(pos, aRows - 1);
             alphaSum += aInput[aWidth * pos + x];
         }
-#pragma loop(hint_parallel(0))
         for (int32_t y = 0; y < aRows; y++) {
             if (inSkipRectX && y >= aSkipRect.y &&
                 y < aSkipRect.YMost()) {
@@ -325,8 +248,7 @@ SpreadHorizontal(unsigned char* aInput,
             y = aSkipRect.YMost() - 1;
             continue;
         }
-        
-#pragma loop(hint_parallel(0))
+
         for (int32_t x = 0; x < aWidth; x++) {
             // Check whether we are within the skip rect. If so, go
             // to the next point outside the skip rect.
@@ -372,7 +294,6 @@ SpreadVertical(unsigned char* aInput,
             continue;
         }
 
-#pragma loop(hint_parallel(0))
         for (int32_t y = 0; y < aRows; y++) {
             // Check whether we are within the skip rect. If so, go
             // to the next point outside the skip rect.
@@ -471,11 +392,12 @@ AlphaBoxBlur::AlphaBoxBlur(const Rect& aRect,
 
 AlphaBoxBlur::AlphaBoxBlur(const Rect& aRect,
                            int32_t aStride,
-                           float aSigma)
+                           float aSigmaX,
+                           float aSigmaY)
   : mRect(int32_t(aRect.x), int32_t(aRect.y),
           int32_t(aRect.width), int32_t(aRect.height)),
     mSpreadRadius(),
-    mBlurRadius(CalculateBlurRadius(Point(aSigma, aSigma))),
+    mBlurRadius(CalculateBlurRadius(Point(aSigmaX, aSigmaY))),
     mStride(aStride),
     mSurfaceAllocationSize(-1)
 {
@@ -755,7 +677,6 @@ AlphaBoxBlur::BoxBlur_C(uint8_t* aData,
   IntRect skipRect = mSkipRect;
   uint8_t *data = aData;
   int32_t stride = mStride;
-#pragma loop(hint_parallel(0))
   for (int32_t y = 0; y < size.height; y++) {
     bool inSkipRectY = y > skipRect.y && y < skipRect.YMost();
 
@@ -780,7 +701,7 @@ AlphaBoxBlur::BoxBlur_C(uint8_t* aData,
       uint32_t value = bottomRight - topRight - bottomLeft;
       value += topLeft;
 
-      data[stride * y + x] = (uint64_t(reciprocal) * value) >> 32;
+      data[stride * y + x] = (uint64_t(reciprocal) * value + (uint64_t(1) << 31)) >> 32;
     }
   }
 }

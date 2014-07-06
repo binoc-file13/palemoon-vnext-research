@@ -6,10 +6,14 @@
 #ifndef GFX_LAYERS_ISURFACEDEALLOCATOR
 #define GFX_LAYERS_ISURFACEDEALLOCATOR
 
-#include "mozilla/ipc/SharedMemory.h"
+#include <stddef.h>                     // for size_t
+#include <stdint.h>                     // for uint32_t
+#include "gfxTypes.h"
+#include "mozilla/gfx/Point.h"          // for IntSize
+#include "mozilla/ipc/SharedMemory.h"   // for SharedMemory, etc
 #include "mozilla/RefPtr.h"
-#include "gfxPoint.h"
-#include "gfxASurface.h"
+#include "nsIMemoryReporter.h"          // for nsIMemoryReporter
+#include "mozilla/Atomics.h"            // for Atomic
 
 /*
  * FIXME [bjacob] *** PURE CRAZYNESS WARNING ***
@@ -23,20 +27,22 @@
 #endif
 
 class gfxSharedImageSurface;
-class gfxASurface;
 
 namespace base {
 class Thread;
-} // namespace
+}
 
 namespace mozilla {
 namespace ipc {
 class Shmem;
-} // namespace
+}
+
 namespace layers {
 
 class PGrallocBufferChild;
 class MaybeMagicGrallocBufferHandle;
+class MemoryTextureClient;
+class MemoryTextureHost;
 
 enum BufferCapabilities {
   DEFAULT_BUFFER_CAPS = 0,
@@ -54,7 +60,7 @@ enum BufferCapabilities {
 class SurfaceDescriptor;
 
 
-ipc::SharedMemory::SharedMemoryType OptimalShmemType();
+mozilla::ipc::SharedMemory::SharedMemoryType OptimalShmemType();
 bool IsSurfaceDescriptorValid(const SurfaceDescriptor& aSurface);
 bool IsSurfaceDescriptorOwned(const SurfaceDescriptor& aDescriptor);
 bool ReleaseOwnedSurfaceDescriptor(const SurfaceDescriptor& aDescriptor);
@@ -67,10 +73,10 @@ bool ReleaseOwnedSurfaceDescriptor(const SurfaceDescriptor& aDescriptor);
  * These methods should be only called in the ipdl implementor's thread, unless
  * specified otherwise in the implementing class.
  */
-class ISurfaceAllocator
+class ISurfaceAllocator : public AtomicRefCounted<ISurfaceAllocator>
 {
 public:
-ISurfaceAllocator() {}
+  ISurfaceAllocator() {}
 
   /**
    * Allocate shared memory that can be accessed by only one process at a time.
@@ -78,49 +84,39 @@ ISurfaceAllocator() {}
    * message.
    */
   virtual bool AllocShmem(size_t aSize,
-                          ipc::SharedMemory::SharedMemoryType aType,
-                          ipc::Shmem* aShmem) = 0;
+                          mozilla::ipc::SharedMemory::SharedMemoryType aType,
+                          mozilla::ipc::Shmem* aShmem) = 0;
 
   /**
    * Allocate shared memory that can be accessed by both processes at the
    * same time. Safety is left for the user of the memory to care about.
    */
   virtual bool AllocUnsafeShmem(size_t aSize,
-                                ipc::SharedMemory::SharedMemoryType aType,
-                                ipc::Shmem* aShmem) = 0;
+                                mozilla::ipc::SharedMemory::SharedMemoryType aType,
+                                mozilla::ipc::Shmem* aShmem) = 0;
   /**
    * Deallocate memory allocated by either AllocShmem or AllocUnsafeShmem.
    */
-  virtual void DeallocShmem(ipc::Shmem& aShmem) = 0;
+  virtual void DeallocShmem(mozilla::ipc::Shmem& aShmem) = 0;
 
   // was AllocBuffer
-  virtual bool AllocSharedImageSurface(const gfxIntSize& aSize,
-                                       gfxASurface::gfxContentType aContent,
+  virtual bool AllocSharedImageSurface(const gfx::IntSize& aSize,
+                                       gfxContentType aContent,
                                        gfxSharedImageSurface** aBuffer);
-  virtual bool AllocSurfaceDescriptor(const gfxIntSize& aSize,
-                                      gfxASurface::gfxContentType aContent,
+  virtual bool AllocSurfaceDescriptor(const gfx::IntSize& aSize,
+                                      gfxContentType aContent,
                                       SurfaceDescriptor* aBuffer);
 
   // was AllocBufferWithCaps
-  virtual bool AllocSurfaceDescriptorWithCaps(const gfxIntSize& aSize,
-                                              gfxASurface::gfxContentType aContent,
+  virtual bool AllocSurfaceDescriptorWithCaps(const gfx::IntSize& aSize,
+                                              gfxContentType aContent,
                                               uint32_t aCaps,
                                               SurfaceDescriptor* aBuffer);
 
   virtual void DestroySharedSurface(SurfaceDescriptor* aSurface);
 
-protected:
-  // this method is needed for a temporary fix, will be removed after
-  // TextureClient/Host rework.
-  virtual bool IsOnCompositorSide() const = 0;
-  static bool PlatformDestroySharedSurface(SurfaceDescriptor* aSurface);
-  virtual bool PlatformAllocSurfaceDescriptor(const gfxIntSize& aSize,
-                                              gfxASurface::gfxContentType aContent,
-                                              uint32_t aCaps,
-                                              SurfaceDescriptor* aBuffer);
-
   // method that does the actual allocation work
-  virtual PGrallocBufferChild* AllocGrallocBuffer(const gfxIntSize& aSize,
+  virtual PGrallocBufferChild* AllocGrallocBuffer(const gfx::IntSize& aSize,
                                                   uint32_t aFormat,
                                                   uint32_t aUsage,
                                                   MaybeMagicGrallocBufferHandle* aHandle)
@@ -128,7 +124,66 @@ protected:
     return nullptr;
   }
 
-  ~ISurfaceAllocator() {}
+  virtual bool IPCOpen() const { return true; }
+
+  // Returns true if aSurface wraps a Shmem.
+  static bool IsShmem(SurfaceDescriptor* aSurface);
+
+protected:
+  // this method is needed for a temporary fix, will be removed after
+  // DeprecatedTextureClient/Host rework.
+  virtual bool IsOnCompositorSide() const = 0;
+  static bool PlatformDestroySharedSurface(SurfaceDescriptor* aSurface);
+  virtual bool PlatformAllocSurfaceDescriptor(const gfx::IntSize& aSize,
+                                              gfxContentType aContent,
+                                              uint32_t aCaps,
+                                              SurfaceDescriptor* aBuffer);
+
+
+  virtual ~ISurfaceAllocator() {}
+
+  friend class detail::RefCounted<ISurfaceAllocator, detail::AtomicRefCount>;
+};
+
+class GfxMemoryImageReporter MOZ_FINAL : public nsIMemoryReporter
+{
+public:
+  NS_DECL_ISUPPORTS
+
+  GfxMemoryImageReporter()
+  {
+#ifdef DEBUG
+    // There must be only one instance of this class, due to |sAmount|
+    // being static.
+    static bool hasRun = false;
+    MOZ_ASSERT(!hasRun);
+    hasRun = true;
+#endif
+  }
+
+  MOZ_DEFINE_MALLOC_SIZE_OF_ON_ALLOC(MallocSizeOfOnAlloc)
+  MOZ_DEFINE_MALLOC_SIZE_OF_ON_FREE(MallocSizeOfOnFree)
+
+  static void DidAlloc(void* aPointer)
+  {
+    sAmount += MallocSizeOfOnAlloc(aPointer);
+  }
+
+  static void WillFree(void* aPointer)
+  {
+    sAmount -= MallocSizeOfOnFree(aPointer);
+  }
+
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData)
+  {
+    return MOZ_COLLECT_REPORT(
+      "explicit/gfx/heap-textures", KIND_HEAP, UNITS_BYTES, sAmount,
+      "Heap memory shared between threads by texture clients and hosts.");
+  }
+
+private:
+  static mozilla::Atomic<int32_t> sAmount;
 };
 
 } // namespace

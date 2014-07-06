@@ -28,7 +28,7 @@ protected:
   SVGViewFrame(nsStyleContext* aContext)
     : SVGViewFrameBase(aContext)
   {
-    AddStateBits(NS_STATE_SVG_NONDISPLAY_CHILD);
+    AddStateBits(NS_FRAME_IS_NONDISPLAY);
   }
 
 public:
@@ -45,7 +45,7 @@ public:
     return SVGViewFrameBase::IsFrameOfType(aFlags & ~(nsIFrame::eSVG));
   }
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const
   {
     return MakeFrameName(NS_LITERAL_STRING("SVGView"), aResult);

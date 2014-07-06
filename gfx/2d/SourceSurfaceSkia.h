@@ -22,7 +22,7 @@ public:
   SourceSurfaceSkia();
   ~SourceSurfaceSkia();
 
-  virtual SurfaceType GetType() const { return SURFACE_SKIA; }
+  virtual SurfaceType GetType() const { return SurfaceType::SKIA; }
   virtual IntSize GetSize() const;
   virtual SurfaceFormat GetFormat() const;
 
@@ -45,15 +45,13 @@ private:
   friend class DrawTargetSkia;
 
   void DrawTargetWillChange();
-  void DrawTargetDestroyed();
-  void MarkIndependent();
   void MaybeUnlock();
 
   SkBitmap mBitmap;
   SurfaceFormat mFormat;
   IntSize mSize;
   int32_t mStride;
-  DrawTargetSkia* mDrawTarget;
+  RefPtr<DrawTargetSkia> mDrawTarget;
   bool mLocked;
 };
 

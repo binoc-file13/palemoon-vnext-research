@@ -12,19 +12,21 @@
 #include "nsLineBox.h"
 #include "gfxFont.h"
 #include "gfxSkipChars.h"
-#include "gfxContext.h"
 #include "nsDisplayList.h"
 
 class nsTextPaintStyle;
 class PropertyProvider;
 
+// This state bit is set on frames whose character data offsets need to be
+// fixed up
+#define TEXT_OFFSETS_NEED_FIXING         NS_FRAME_STATE_BIT(30)
+
 // This state bit is set on frames that have some non-collapsed characters after
 // reflow
 #define TEXT_HAS_NONCOLLAPSED_CHARACTERS NS_FRAME_STATE_BIT(31)
 
-// This state bit is set on frames which are forced to trim their leading and
-// trailing whitespaces
-#define TEXT_FORCE_TRIM_WHITESPACE       NS_FRAME_STATE_BIT(32)
+// This state bit is set on children of token MathML elements
+#define TEXT_IS_IN_TOKEN_MATHML          NS_FRAME_STATE_BIT(32)
 
 #define TEXT_HAS_FONT_INFLATION          NS_FRAME_STATE_BIT(61)
 
@@ -32,6 +34,12 @@ typedef nsFrame nsTextFrameBase;
 
 class nsDisplayTextGeometry;
 class nsDisplayText;
+
+class nsTextFrameTextRunCache {
+public:
+  static void Init();
+  static void Shutdown();
+};
 
 class nsTextFrame : public nsTextFrameBase {
 public:
@@ -72,7 +80,7 @@ public:
   virtual nsIFrame* GetNextContinuation() const MOZ_OVERRIDE {
     return mNextContinuation;
   }
-  NS_IMETHOD SetNextContinuation(nsIFrame* aNextContinuation) MOZ_OVERRIDE {
+  virtual void SetNextContinuation(nsIFrame* aNextContinuation) MOZ_OVERRIDE {
     NS_ASSERTION (!aNextContinuation || GetType() == aNextContinuation->GetType(),
                   "setting a next continuation with incorrect type!");
     NS_ASSERTION (!nsSplittableFrame::IsInNextContinuationChain(aNextContinuation, this),
@@ -80,14 +88,13 @@ public:
     mNextContinuation = aNextContinuation;
     if (aNextContinuation)
       aNextContinuation->RemoveStateBits(NS_FRAME_IS_FLUID_CONTINUATION);
-    return NS_OK;
   }
   virtual nsIFrame* GetNextInFlowVirtual() const MOZ_OVERRIDE { return GetNextInFlow(); }
   nsIFrame* GetNextInFlow() const {
     return mNextContinuation && (mNextContinuation->GetStateBits() & NS_FRAME_IS_FLUID_CONTINUATION) ? 
       mNextContinuation : nullptr;
   }
-  NS_IMETHOD SetNextInFlow(nsIFrame* aNextInFlow) MOZ_OVERRIDE {
+  virtual void SetNextInFlow(nsIFrame* aNextInFlow) MOZ_OVERRIDE {
     NS_ASSERTION (!aNextInFlow || GetType() == aNextInFlow->GetType(),
                   "setting a next in flow with incorrect type!");
     NS_ASSERTION (!nsSplittableFrame::IsInNextContinuationChain(aNextInFlow, this),
@@ -95,10 +102,9 @@ public:
     mNextContinuation = aNextInFlow;
     if (aNextInFlow)
       aNextInFlow->AddStateBits(NS_FRAME_IS_FLUID_CONTINUATION);
-    return NS_OK;
   }
-  virtual nsIFrame* GetLastInFlow() const MOZ_OVERRIDE;
-  virtual nsIFrame* GetLastContinuation() const MOZ_OVERRIDE;
+  virtual nsIFrame* LastInFlow() const MOZ_OVERRIDE;
+  virtual nsIFrame* LastContinuation() const MOZ_OVERRIDE;
   
   virtual nsSplittableType GetSplittableType() const MOZ_OVERRIDE {
     return NS_FRAME_SPLITTABLE;
@@ -122,9 +128,13 @@ public:
   virtual void InvalidateFrame(uint32_t aDisplayItemKey = 0) MOZ_OVERRIDE;
   virtual void InvalidateFrameWithRect(const nsRect& aRect, uint32_t aDisplayItemKey = 0) MOZ_OVERRIDE;
 
-#ifdef DEBUG
-  void List(FILE* out, int32_t aIndent, uint32_t aFlags = 0) const MOZ_OVERRIDE;
+#ifdef DEBUG_FRAME_DUMP
+  void List(FILE* out = stderr, const char* aPrefix = "", uint32_t aFlags = 0) const MOZ_OVERRIDE;
   NS_IMETHOD GetFrameName(nsAString& aResult) const MOZ_OVERRIDE;
+  void ToCString(nsCString& aBuf, int32_t* aTotalContentLength) const;
+#endif
+
+#ifdef DEBUG
   NS_IMETHOD_(nsFrameState) GetDebugStateBits() const MOZ_OVERRIDE;
 #endif
   
@@ -176,11 +186,7 @@ public:
   virtual bool IsSelfEmpty() MOZ_OVERRIDE { return IsEmpty(); }
   virtual nscoord GetBaseline() const MOZ_OVERRIDE;
   
-  /**
-   * @return true if this text frame ends with a newline character.  It
-   * should return false if this is not a text frame.
-   */
-  virtual bool HasTerminalNewline() const MOZ_OVERRIDE;
+  virtual bool HasSignificantTerminalNewline() const MOZ_OVERRIDE;
 
   /**
    * Returns true if this text frame is logically adjacent to the end of the
@@ -219,6 +225,9 @@ public:
                              nsSize aMargin, nsSize aBorder, nsSize aPadding,
                              uint32_t aFlags) MOZ_OVERRIDE;
   virtual nsRect ComputeTightBounds(gfxContext* aContext) const MOZ_OVERRIDE;
+  virtual nsresult GetPrefWidthTightBounds(nsRenderingContext* aContext,
+                                           nscoord* aX,
+                                           nscoord* aXMost) MOZ_OVERRIDE;
   NS_IMETHOD Reflow(nsPresContext* aPresContext,
                     nsHTMLReflowMetrics& aMetrics,
                     const nsHTMLReflowState& aReflowState,
@@ -375,7 +384,7 @@ public:
   // context.
   void PaintText(nsRenderingContext* aRenderingContext, nsPoint aPt,
                  const nsRect& aDirtyRect, const nsCharClipDisplayItem& aItem,
-                 gfxTextObjectPaint* aObjectPaint = nullptr,
+                 gfxTextContextPaint* aContextPaint = nullptr,
                  DrawPathCallbacks* aCallbacks = nullptr);
   // helper: paint text frame when we're impacted by at least one selection.
   // Return false if the text was not painted and we should continue with
@@ -389,7 +398,7 @@ public:
                               uint32_t aContentLength,
                               nsTextPaintStyle& aTextPaintStyle,
                               const nsCharClipDisplayItem::ClipEdges& aClipEdges,
-                              gfxTextObjectPaint* aObjectPaint,
+                              gfxTextContextPaint* aContextPaint,
                               DrawPathCallbacks* aCallbacks);
   // helper: paint text with foreground and background colors determined
   // by selection(s). Also computes a mask of all selection types applying to
@@ -424,10 +433,6 @@ public:
   virtual nscolor GetCaretColorAt(int32_t aOffset) MOZ_OVERRIDE;
 
   int16_t GetSelectionStatus(int16_t* aSelectionFlags);
-
-#ifdef DEBUG
-  void ToCString(nsCString& aBuf, int32_t* aTotalContentLength) const;
-#endif
 
   int32_t GetContentOffset() const { return mContentOffset; }
   int32_t GetContentLength() const
@@ -509,7 +514,7 @@ public:
     int32_t GetEnd() const { return mStart + mLength; }
   };
   TrimmedOffsets GetTrimmedOffsets(const nsTextFragment* aFrag,
-                                   bool aTrimAfter);
+                                   bool aTrimAfter, bool aPostReflow = true);
 
   // Similar to Reflow(), but for use from nsLineLayout
   void ReflowText(nsLineLayout& aLineLayout, nscoord aAvailableWidth,
@@ -651,7 +656,7 @@ protected:
                    nscolor aTextColor,
                    gfxFloat& aAdvanceWidth,
                    bool aDrawSoftHyphen,
-                   gfxTextObjectPaint* aObjectPaint,
+                   gfxTextContextPaint* aContextPaint,
                    DrawPathCallbacks* aCallbacks);
 
   void DrawTextRunAndDecorations(gfxContext* const aCtx,
@@ -668,7 +673,7 @@ protected:
                                  bool aDrawSoftHyphen,
                                  const TextDecorations& aDecorations,
                                  const nscolor* const aDecorationOverrideColor,
-                                 gfxTextObjectPaint* aObjectPaint,
+                                 gfxTextContextPaint* aContextPaint,
                                  DrawPathCallbacks* aCallbacks);
 
   void DrawText(gfxContext* const aCtx,
@@ -684,7 +689,7 @@ protected:
                 gfxFloat& aAdvanceWidth,
                 bool aDrawSoftHyphen,
                 const nscolor* const aDecorationOverrideColor = nullptr,
-                gfxTextObjectPaint* aObjectPaint = nullptr,
+                gfxTextContextPaint* aContextPaint = nullptr,
                 DrawPathCallbacks* aCallbacks = nullptr);
 
   // Set non empty rect to aRect, it should be overflow rect or frame rect.

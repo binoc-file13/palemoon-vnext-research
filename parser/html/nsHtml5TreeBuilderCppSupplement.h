@@ -6,8 +6,6 @@
 
 #include "nsError.h"
 #include "nsIPresShell.h"
-#include "nsEvent.h"
-#include "nsGUIEvent.h"
 #include "nsEventDispatcher.h"
 #include "nsNodeUtils.h"
 #include "nsIFrame.h"
@@ -268,14 +266,14 @@ nsHtml5TreeBuilder::appendChildrenToNewParent(nsIContent** aOldParent, nsIConten
 }
 
 void
-nsHtml5TreeBuilder::insertFosterParentedCharacters(PRUnichar* aBuffer, int32_t aStart, int32_t aLength, nsIContent** aTable, nsIContent** aStackParent)
+nsHtml5TreeBuilder::insertFosterParentedCharacters(char16_t* aBuffer, int32_t aStart, int32_t aLength, nsIContent** aTable, nsIContent** aStackParent)
 {
   NS_PRECONDITION(aBuffer, "Null buffer");
   NS_PRECONDITION(aTable, "Null table");
   NS_PRECONDITION(aStackParent, "Null stack parent");
 
-  PRUnichar* bufferCopy = new PRUnichar[aLength];
-  memcpy(bufferCopy, aBuffer, aLength * sizeof(PRUnichar));
+  char16_t* bufferCopy = new char16_t[aLength];
+  memcpy(bufferCopy, aBuffer, aLength * sizeof(char16_t));
   
   nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
   NS_ASSERTION(treeOp, "Tree op allocation failed.");
@@ -295,13 +293,13 @@ nsHtml5TreeBuilder::insertFosterParentedChild(nsIContent** aChild, nsIContent** 
 }
 
 void
-nsHtml5TreeBuilder::appendCharacters(nsIContent** aParent, PRUnichar* aBuffer, int32_t aStart, int32_t aLength)
+nsHtml5TreeBuilder::appendCharacters(nsIContent** aParent, char16_t* aBuffer, int32_t aStart, int32_t aLength)
 {
   NS_PRECONDITION(aBuffer, "Null buffer");
   NS_PRECONDITION(aParent, "Null parent");
 
-  PRUnichar* bufferCopy = new PRUnichar[aLength];
-  memcpy(bufferCopy, aBuffer, aLength * sizeof(PRUnichar));
+  char16_t* bufferCopy = new char16_t[aLength];
+  memcpy(bufferCopy, aBuffer, aLength * sizeof(char16_t));
   
   nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
   NS_ASSERTION(treeOp, "Tree op allocation failed.");
@@ -320,7 +318,7 @@ nsHtml5TreeBuilder::appendIsindexPrompt(nsIContent** aParent)
 }
 
 void
-nsHtml5TreeBuilder::appendComment(nsIContent** aParent, PRUnichar* aBuffer, int32_t aStart, int32_t aLength)
+nsHtml5TreeBuilder::appendComment(nsIContent** aParent, char16_t* aBuffer, int32_t aStart, int32_t aLength)
 {
   NS_PRECONDITION(aBuffer, "Null buffer");
   NS_PRECONDITION(aParent, "Null parent");
@@ -328,8 +326,8 @@ nsHtml5TreeBuilder::appendComment(nsIContent** aParent, PRUnichar* aBuffer, int3
     return;
   }
 
-  PRUnichar* bufferCopy = new PRUnichar[aLength];
-  memcpy(bufferCopy, aBuffer, aLength * sizeof(PRUnichar));
+  char16_t* bufferCopy = new char16_t[aLength];
+  memcpy(bufferCopy, aBuffer, aLength * sizeof(char16_t));
   
   nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
   NS_ASSERTION(treeOp, "Tree op allocation failed.");
@@ -337,12 +335,12 @@ nsHtml5TreeBuilder::appendComment(nsIContent** aParent, PRUnichar* aBuffer, int3
 }
 
 void
-nsHtml5TreeBuilder::appendCommentToDocument(PRUnichar* aBuffer, int32_t aStart, int32_t aLength)
+nsHtml5TreeBuilder::appendCommentToDocument(char16_t* aBuffer, int32_t aStart, int32_t aLength)
 {
   NS_PRECONDITION(aBuffer, "Null buffer");
 
-  PRUnichar* bufferCopy = new PRUnichar[aLength];
-  memcpy(bufferCopy, aBuffer, aLength * sizeof(PRUnichar));
+  char16_t* bufferCopy = new char16_t[aLength];
+  memcpy(bufferCopy, aBuffer, aLength * sizeof(char16_t));
   
   nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
   NS_ASSERTION(treeOp, "Tree op allocation failed.");
@@ -557,16 +555,16 @@ nsHtml5TreeBuilder::elementPopped(int32_t aNamespace, nsIAtom* aName, nsIContent
 }
 
 void
-nsHtml5TreeBuilder::accumulateCharacters(const PRUnichar* aBuf, int32_t aStart, int32_t aLength)
+nsHtml5TreeBuilder::accumulateCharacters(const char16_t* aBuf, int32_t aStart, int32_t aLength)
 {
   int32_t newFillLen = charBufferLen + aLength;
   if (newFillLen > charBuffer.length) {
     int32_t newAllocLength = newFillLen + (newFillLen >> 1);
-    jArray<PRUnichar,int32_t> newBuf = jArray<PRUnichar,int32_t>::newJArray(newAllocLength);
-    memcpy(newBuf, charBuffer, sizeof(PRUnichar) * charBufferLen);
+    jArray<char16_t,int32_t> newBuf = jArray<char16_t,int32_t>::newJArray(newAllocLength);
+    memcpy(newBuf, charBuffer, sizeof(char16_t) * charBufferLen);
     charBuffer = newBuf;
   }
-  memcpy(charBuffer + charBufferLen, aBuf + aStart, sizeof(PRUnichar) * aLength);
+  memcpy(charBuffer + charBufferLen, aBuf + aStart, sizeof(char16_t) * aLength);
   charBufferLen = newFillLen;
 }
 
@@ -823,7 +821,7 @@ nsHtml5TreeBuilder::errStrayDoctype()
 void
 nsHtml5TreeBuilder::errAlmostStandardsDoctype()
 {
-  if (MOZ_UNLIKELY(mViewSource)) {
+  if (MOZ_UNLIKELY(mViewSource) && !isSrcdocDocument) {
     mViewSource->AddErrorToCurrentRun("errAlmostStandardsDoctype");
   }
 }
@@ -831,7 +829,7 @@ nsHtml5TreeBuilder::errAlmostStandardsDoctype()
 void
 nsHtml5TreeBuilder::errQuirkyDoctype()
 {
-  if (MOZ_UNLIKELY(mViewSource)) {
+  if (MOZ_UNLIKELY(mViewSource) && !isSrcdocDocument) {
     mViewSource->AddErrorToCurrentRun("errQuirkyDoctype");
   }
 }
@@ -895,7 +893,7 @@ nsHtml5TreeBuilder::errFooBetweenHeadAndBody(nsIAtom* aName)
 void
 nsHtml5TreeBuilder::errStartTagWithoutDoctype()
 {
-  if (MOZ_UNLIKELY(mViewSource)) {
+  if (MOZ_UNLIKELY(mViewSource) && !isSrcdocDocument) {
     mViewSource->AddErrorToCurrentRun("errStartTagWithoutDoctype");
   }
 }
@@ -1016,7 +1014,7 @@ nsHtml5TreeBuilder::errStartTagInTableBody(nsIAtom* aName)
 void
 nsHtml5TreeBuilder::errEndTagSeenWithoutDoctype()
 {
-  if (MOZ_UNLIKELY(mViewSource)) {
+  if (MOZ_UNLIKELY(mViewSource) && !isSrcdocDocument) {
     mViewSource->AddErrorToCurrentRun("errEndTagSeenWithoutDoctype");
   }
 }

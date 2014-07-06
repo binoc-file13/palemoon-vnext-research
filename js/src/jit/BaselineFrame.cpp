@@ -4,15 +4,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "BaselineFrame.h"
-#include "BaselineFrame-inl.h"
-#include "BaselineIC.h"
-#include "BaselineJIT.h"
-#include "Ion.h"
-#include "IonFrames-inl.h"
+#include "jit/BaselineFrame-inl.h"
 
+#include "jit/BaselineJIT.h"
+#include "jit/Ion.h"
 #include "vm/Debugger.h"
 #include "vm/ScopeObject.h"
+
+#include "jit/IonFrames-inl.h"
+#include "vm/Stack-inl.h"
 
 using namespace js;
 using namespace js::jit;
@@ -30,12 +30,13 @@ BaselineFrame::trace(JSTracer *trc)
         gc::MarkValueRootRange(trc, numArgs, argv(), "baseline-args");
     }
 
-    // Mark scope chain.
-    gc::MarkObjectRoot(trc, &scopeChain_, "baseline-scopechain");
+    // Mark scope chain, if it exists.
+    if (scopeChain_)
+        gc::MarkObjectRoot(trc, &scopeChain_, "baseline-scopechain");
 
     // Mark return value.
     if (hasReturnValue())
-        gc::MarkValueRoot(trc, returnValue(), "baseline-rval");
+        gc::MarkValueRoot(trc, returnValue().address(), "baseline-rval");
 
     if (isEvalFrame())
         gc::MarkScriptRoot(trc, &evalScript_, "baseline-evalscript");
@@ -55,7 +56,7 @@ BaselineFrame::trace(JSTracer *trc)
 bool
 BaselineFrame::copyRawFrameSlots(AutoValueVector *vec) const
 {
-    unsigned nfixed = script()->nfixed;
+    unsigned nfixed = script()->nfixed();
     unsigned nformals = numFormalArgs();
 
     if (!vec->resize(nformals + nfixed))
@@ -112,11 +113,6 @@ BaselineFrame::initForOsr(StackFrame *fp, uint32_t numStackValues)
     if (fp->hasCallObjUnchecked())
         flags_ |= BaselineFrame::HAS_CALL_OBJ;
 
-    if (fp->hasBlockChain()) {
-        flags_ |= BaselineFrame::HAS_BLOCKCHAIN;
-        blockChain_ = &fp->blockChain();
-    }
-
     if (fp->isEvalFrame()) {
         flags_ |= BaselineFrame::EVAL;
         evalScript_ = fp->script();
@@ -156,8 +152,8 @@ BaselineFrame::initForOsr(StackFrame *fp, uint32_t numStackValues)
         // debugger, wants a valid return address, but it's okay to just pick one.
         // In debug mode there's always at least 1 ICEntry (since there are always
         // debug prologue/epilogue calls).
-        IonFrameIterator iter(cx->mainThread().ionTop);
-        JS_ASSERT(iter.returnAddress() == NULL);
+        IonFrameIterator iter(cx);
+        JS_ASSERT(iter.returnAddress() == nullptr);
         BaselineScript *baseline = fp->script()->baselineScript();
         iter.current()->setReturnAddress(baseline->returnAddressForIC(baseline->icEntry(0)));
 

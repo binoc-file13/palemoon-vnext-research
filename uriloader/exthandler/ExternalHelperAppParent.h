@@ -23,6 +23,7 @@ class OptionalURIParams;
 namespace dom {
 
 class ContentParent;
+class PBrowserParent;
 
 class ExternalHelperAppParent : public PExternalHelperAppParent
                               , public nsHashPropertyBag
@@ -39,16 +40,19 @@ public:
     NS_DECL_NSIMULTIPARTCHANNEL
     NS_DECL_NSIRESUMABLECHANNEL
 
-    bool RecvOnStartRequest(const nsCString& entityID);
-    bool RecvOnDataAvailable(const nsCString& data, const uint64_t& offset, const uint32_t& count);
-    bool RecvOnStopRequest(const nsresult& code);
+    bool RecvOnStartRequest(const nsCString& entityID) MOZ_OVERRIDE;
+    bool RecvOnDataAvailable(const nsCString& data,
+                             const uint64_t& offset,
+                             const uint32_t& count) MOZ_OVERRIDE;
+    bool RecvOnStopRequest(const nsresult& code) MOZ_OVERRIDE;
 
     ExternalHelperAppParent(const OptionalURIParams& uri, const int64_t& contentLength);
     void Init(ContentParent *parent,
               const nsCString& aMimeContentType,
               const nsCString& aContentDisposition,
               const bool& aForceSave,
-              const OptionalURIParams& aReferrer);
+              const OptionalURIParams& aReferrer,
+              PBrowserParent* aBrowser);
     virtual ~ExternalHelperAppParent();
 
 private:

@@ -17,17 +17,12 @@
 #ifndef nsLineLayout_h___
 #define nsLineLayout_h___
 
-#include "nsFrame.h"
-#include "nsDeque.h"
 #include "nsLineBox.h"
 #include "nsBlockReflowState.h"
 #include "plarena.h"
 #include "gfxTypes.h"
 
-class nsBlockFrame;
-
 class nsFloatManager;
-class nsPlaceholderFrame;
 struct nsStyleText;
 
 class nsLineLayout {
@@ -252,7 +247,7 @@ public:
     mNeedBackup = false;
     mLastOptionalBreakContent = nullptr;
     mLastOptionalBreakContentOffset = -1;
-    mLastOptionalBreakPriority = eNoBreak;
+    mLastOptionalBreakPriority = gfxBreakPriority::eNoBreak;
   }
   // Retrieve last set optional break position. When this returns null, no
   // optional break has been recorded (which means that the line can't break yet).

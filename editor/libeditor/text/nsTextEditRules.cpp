@@ -56,28 +56,17 @@ using namespace mozilla;
  ********************************************************/
 
 nsTextEditRules::nsTextEditRules()
+: mEditor(nullptr)
+, mPasswordText()
+, mPasswordIMEText()
+, mPasswordIMEIndex(0)
+, mActionNesting(0)
+, mLockRulesSniffing(false)
+, mDidExplicitlySetInterline(false)
+, mTheAction(EditAction::none)
+, mLastStart(0)
+, mLastLength(0)
 {
-  InitFields();
-}
-
-void
-nsTextEditRules::InitFields()
-{
-  mEditor = nullptr;
-  mPasswordText.Truncate();
-  mPasswordIMEText.Truncate();
-  mPasswordIMEIndex = 0;
-  mBogusNode = nullptr;
-  mCachedSelectionNode = nullptr;
-  mCachedSelectionOffset = 0;
-  mActionNesting = 0;
-  mLockRulesSniffing = false;
-  mDidExplicitlySetInterline = false;
-  mDeleteBidiImmediately = false;
-  mTheAction = EditAction::none;
-  mTimer = nullptr;
-  mLastStart = 0;
-  mLastLength = 0;
 }
 
 nsTextEditRules::~nsTextEditRules()
@@ -111,8 +100,6 @@ NS_IMETHODIMP
 nsTextEditRules::Init(nsPlaintextEditor *aEditor)
 {
   if (!aEditor) { return NS_ERROR_NULL_POINTER; }
-
-  InitFields();
 
   mEditor = aEditor;  // we hold a non-refcounted reference back to our editor
   nsCOMPtr<nsISelection> selection;
@@ -482,9 +469,9 @@ GetTextNode(nsISelection *selection, nsEditor *editor) {
 }
 #ifdef DEBUG
 #define ASSERT_PASSWORD_LENGTHS_EQUAL()                                \
-  if (IsPasswordEditor()) {                                            \
+  if (IsPasswordEditor() && mEditor->GetRoot()) {                      \
     int32_t txtLen;                                                    \
-    mEditor->GetTextLength(&txtLen);                                    \
+    mEditor->GetTextLength(&txtLen);                                   \
     NS_ASSERTION(mPasswordText.Length() == uint32_t(txtLen),           \
                  "password length not equal to number of asterisks");  \
   }
@@ -1319,7 +1306,7 @@ nsTextEditRules::FillBufWithPWChars(nsAString *aOutString, int32_t aLength)
   MOZ_ASSERT(aOutString);
 
   // change the output to the platform password character
-  PRUnichar passwordChar = LookAndFeel::GetPasswordCharacter();
+  char16_t passwordChar = LookAndFeel::GetPasswordCharacter();
 
   int32_t i;
   aOutString->Truncate();

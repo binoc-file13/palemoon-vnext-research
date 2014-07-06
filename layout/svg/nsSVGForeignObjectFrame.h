@@ -39,8 +39,6 @@ public:
                                nsIAtom*        aAttribute,
                                int32_t         aModType) MOZ_OVERRIDE;
 
-  virtual void DidSetStyleContext(nsStyleContext* aOldStyleContext) MOZ_OVERRIDE;
-
   virtual nsIFrame* GetContentInsertionFrame() MOZ_OVERRIDE {
     return GetFirstPrincipalChild()->GetContentInsertionFrame();
   }
@@ -67,10 +65,10 @@ public:
       ~(nsIFrame::eSVG | nsIFrame::eSVGForeignObject));
   }
 
-  virtual bool IsSVGTransformed(gfxMatrix *aOwnTransform,
-                                gfxMatrix *aFromParentTransform) const MOZ_OVERRIDE;
+  virtual bool IsSVGTransformed(Matrix *aOwnTransform,
+                                Matrix *aFromParentTransform) const MOZ_OVERRIDE;
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const MOZ_OVERRIDE
   {
     return MakeFrameName(NS_LITERAL_STRING("SVGForeignObject"), aResult);
@@ -79,16 +77,17 @@ public:
 
   // nsISVGChildFrame interface:
   NS_IMETHOD PaintSVG(nsRenderingContext *aContext,
-                      const nsIntRect *aDirtyRect) MOZ_OVERRIDE;
+                      const nsIntRect *aDirtyRect,
+                      nsIFrame* aTransformRoot = nullptr) MOZ_OVERRIDE;
   NS_IMETHOD_(nsIFrame*) GetFrameForPoint(const nsPoint &aPoint) MOZ_OVERRIDE;
   NS_IMETHOD_(nsRect) GetCoveredRegion() MOZ_OVERRIDE;
   virtual void ReflowSVG() MOZ_OVERRIDE;
   virtual void NotifySVGChanged(uint32_t aFlags) MOZ_OVERRIDE;
-  virtual SVGBBox GetBBoxContribution(const gfxMatrix &aToBBoxUserspace,
+  virtual SVGBBox GetBBoxContribution(const Matrix &aToBBoxUserspace,
                                       uint32_t aFlags) MOZ_OVERRIDE;
   NS_IMETHOD_(bool) IsDisplayContainer() MOZ_OVERRIDE { return true; }
 
-  gfxMatrix GetCanvasTM(uint32_t aFor);
+  gfxMatrix GetCanvasTM(uint32_t aFor, nsIFrame* aTransformRoot = nullptr);
 
   nsRect GetInvalidRegion();
 

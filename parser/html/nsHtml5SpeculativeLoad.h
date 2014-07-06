@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
  
-#ifndef nsHtml5SpeculativeLoad_h_
-#define nsHtml5SpeculativeLoad_h_
+#ifndef nsHtml5SpeculativeLoad_h
+#define nsHtml5SpeculativeLoad_h
 
 #include "nsString.h"
 
@@ -102,7 +102,7 @@ class nsHtml5SpeculativeLoad {
                       "Trying to reinitialize a speculative load!");
       mOpCode = eSpeculativeLoadSetDocumentCharset;
       CopyUTF8toUTF16(aCharset, mCharset);
-      mTypeOrCharsetSource.Assign((PRUnichar)aCharsetSource);
+      mTypeOrCharsetSource.Assign((char16_t)aCharsetSource);
     }
 
     void Perform(nsHtml5TreeOpExecutor* aExecutor);
@@ -132,4 +132,4 @@ class nsHtml5SpeculativeLoad {
     nsString mCrossOrigin;
 };
 
-#endif // nsHtml5SpeculativeLoad_h_
+#endif // nsHtml5SpeculativeLoad_h

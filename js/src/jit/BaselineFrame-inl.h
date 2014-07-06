@@ -9,11 +9,12 @@
 
 #ifdef JS_ION
 
+#include "jit/BaselineFrame.h"
+
 #include "jscntxt.h"
 #include "jscompartment.h"
 
-#include "IonFrames.h"
-#include "vm/ScopeObject-inl.h"
+#include "vm/ScopeObject.h"
 
 namespace js {
 namespace jit {
@@ -35,34 +36,22 @@ BaselineFrame::popOffScopeChain()
 inline bool
 BaselineFrame::pushBlock(JSContext *cx, Handle<StaticBlockObject *> block)
 {
-    JS_ASSERT_IF(hasBlockChain(), blockChain() == *block->enclosingBlock());
+    JS_ASSERT(block->needsClone());
 
-    if (block->needsClone()) {
-        ClonedBlockObject *clone = ClonedBlockObject::create(cx, block, this);
-        if (!clone)
-            return false;
+    ClonedBlockObject *clone = ClonedBlockObject::create(cx, block, this);
+    if (!clone)
+        return false;
+    pushOnScopeChain(*clone);
 
-        pushOnScopeChain(*clone);
-    }
-
-    setBlockChain(*block);
     return true;
 }
 
 inline void
 BaselineFrame::popBlock(JSContext *cx)
 {
-    JS_ASSERT(hasBlockChain());
+    JS_ASSERT(scopeChain_->is<ClonedBlockObject>());
 
-    if (cx->compartment()->debugMode())
-        DebugScopes::onPopBlock(cx, this);
-
-    if (blockChain_->needsClone()) {
-        JS_ASSERT(scopeChain_->as<ClonedBlockObject>().staticBlock() == *blockChain_);
-        popOffScopeChain();
-    }
-
-    setBlockChain(*blockChain_->enclosingBlock());
+    popOffScopeChain();
 }
 
 inline CallObject &

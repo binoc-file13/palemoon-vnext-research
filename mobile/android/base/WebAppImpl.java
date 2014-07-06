@@ -26,8 +26,8 @@ import android.view.Display;
 import java.net.URL;
 import java.io.File;
 
-public class WebAppImpl extends GeckoApp {
-    private static final String LOGTAG = "GeckoWebAppImpl";
+public class WebappImpl extends GeckoApp {
+    private static final String LOGTAG = "GeckoWebappImpl";
 
     private URL mOrigin;
     private TextView mTitlebarText = null;
@@ -62,15 +62,20 @@ public class WebAppImpl extends GeckoApp {
         mTitlebarText = (TextView)findViewById(R.id.webapp_title);
         mTitlebar = findViewById(R.id.webapp_titlebar);
         if (!action.startsWith(ACTION_WEBAPP_PREFIX)) {
-            Log.e(LOGTAG, "WebApp launch, but intent action is " + action + "!");
+            Log.e(LOGTAG, "Webapp launch, but intent action is " + action + "!");
             return;
         }
 
-        // Try to use the origin stored in the WebAppAllocator first
-        String origin = WebAppAllocator.getInstance(this).getAppForIndex(getIndex());
+        // Try to use the origin stored in the WebappAllocator first
+        String origin = WebappAllocator.getInstance(this).getAppForIndex(getIndex());
         try {
             mOrigin = new URL(origin);
         } catch (java.net.MalformedURLException ex) {
+            // If we can't parse the this is an app protocol, just settle for not having an origin
+            if (!origin.startsWith("app://")) {
+                return;
+            }
+
             // If that failed fall back to the origin stored in the shortcut
             Log.i(LOGTAG, "Webapp is not registered with allocator");
             try {
@@ -85,11 +90,11 @@ public class WebAppImpl extends GeckoApp {
     protected void loadStartupTab(String uri) {
         String action = getIntent().getAction();
         if (GeckoApp.ACTION_WEBAPP_PREFIX.equals(action)) {
-            // This action assumes the uri is not an installed WebApp. We will
-            // use the WebAppAllocator to register the uri with an Android
+            // This action assumes the uri is not an installed Webapp. We will
+            // use the WebappAllocator to register the uri with an Android
             // process so it can run chromeless.
-            int index = WebAppAllocator.getInstance(this).findAndAllocateIndex(uri, "App", (Bitmap) null);
-            Intent appIntent = GeckoAppShell.getWebAppIntent(index, uri);
+            int index = WebappAllocator.getInstance(this).findAndAllocateIndex(uri, "App", (Bitmap) null);
+            Intent appIntent = GeckoAppShell.getWebappIntent(index, uri);
             startActivity(appIntent);
             finish();
         }
@@ -100,7 +105,7 @@ public class WebAppImpl extends GeckoApp {
 
         // get the favicon dominant color, stored when the app was installed
         int[] colors = new int[2];
-        int dominantColor = prefs.getInt(WebAppAllocator.iconKey(getIndex()), -1);
+        int dominantColor = prefs.getInt(WebappAllocator.iconKey(getIndex()), -1);
 
         // now lighten it, to ensure that the icon stands out in the center
         float[] f = new float[3];
@@ -139,7 +144,7 @@ public class WebAppImpl extends GeckoApp {
     protected String getDefaultProfileName() {
         String action = getIntent().getAction();
         if (!action.startsWith(ACTION_WEBAPP_PREFIX)) {
-            Log.e(LOGTAG, "WebApp launch, but intent action is " + action + "!");
+            Log.e(LOGTAG, "Webapp launch, but intent action is " + action + "!");
             return null;
         }
 
@@ -147,9 +152,9 @@ public class WebAppImpl extends GeckoApp {
     }
 
     @Override
-    protected int getSessionRestoreState(Bundle savedInstanceState) {
+    protected boolean getSessionRestoreState(Bundle savedInstanceState) {
         // for now webapps never restore your session
-        return RESTORE_NONE;
+        return false;
     }
 
     @Override
@@ -212,11 +217,5 @@ public class WebAppImpl extends GeckoApp {
                 break;
         }
         super.onTabChanged(tab, msg, data);
-    }
-
-    @Override
-    protected void geckoConnected() {
-        super.geckoConnected();
-        mLayerView.setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
 };

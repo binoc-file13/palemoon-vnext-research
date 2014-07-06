@@ -6,9 +6,9 @@
 
 #include "jscntxt.h"
 #include "jscompartment.h"
+
 #include "jit/Bailouts.h"
-#include "jit/IonCompartment.h"
-#include "jit/IonFrames-inl.h"
+#include "jit/JitCompartment.h"
 
 using namespace js;
 using namespace js::jit;
@@ -27,17 +27,17 @@ JS_STATIC_ASSERT(sizeof(ExtendedBailoutStack) ==
 
 #endif
 #if 0
-BailoutEnvironment::BailoutEnvironment(IonCompartment *ion, void **sp)
+BailoutEnvironment::BailoutEnvironment(JitCompartment *ion, void **sp)
   : sp_(sp)
 {
     bailout_ = reinterpret_cast<ExtendedBailoutStack *>(sp);
 
     if (bailout_->frameClass() != FrameSizeClass::None()) {
         frameSize_ = bailout_->frameSize();
-        frame_ = &sp_[sizeof(BailoutStack) / STACK_SLOT_SIZE];
+        frame_ = &sp_[sizeof(BailoutStack) / sizeof(void *)];
 
         // Compute the bailout ID.
-        IonCode *code = ion->getBailoutTable(bailout_->frameClass());
+        JitCode *code = ion->getBailoutTable(bailout_->frameClass());
         uintptr_t tableOffset = bailout_->tableOffset();
         uintptr_t tableStart = reinterpret_cast<uintptr_t>(code->raw());
 
@@ -49,14 +49,14 @@ BailoutEnvironment::BailoutEnvironment(IonCompartment *ion, void **sp)
         JS_ASSERT(bailoutId_ < BAILOUT_TABLE_SIZE);
     } else {
         frameSize_ = bailout_->frameSize();
-        frame_ = &sp_[sizeof(ExtendedBailoutStack) / STACK_SLOT_SIZE];
+        frame_ = &sp_[sizeof(ExtendedBailoutStack) / sizeof(void *)];
     }
 }
 
 IonFramePrefix *
 BailoutEnvironment::top() const
 {
-    return (IonFramePrefix *)&frame_[frameSize_ / STACK_SLOT_SIZE];
+    return (IonFramePrefix *)&frame_[frameSize_ / sizeof(void *)];
 }
 
 #endif
@@ -76,11 +76,12 @@ class BailoutStack
         uintptr_t tableOffset_;
     };
 
-  private:
-    double    fpregs_[FloatRegisters::Total];
-    uintptr_t regs_[Registers::Total];
+  protected: // Silence Clang warning about unused private fields.
+    mozilla::Array<double, FloatRegisters::Total> fpregs_;
+    mozilla::Array<uintptr_t, Registers::Total> regs_;
 
     uintptr_t snapshotOffset_;
+    uintptr_t padding_;
 
   public:
     FrameSizeClass frameClass() const {
@@ -109,6 +110,9 @@ class BailoutStack
     }
 };
 
+// Make sure the compiler doesn't add extra padding.
+static_assert((sizeof(BailoutStack) % 8) == 0, "BailoutStack should be 8-byte aligned.");
+
 } // namespace jit
 } // namespace js
 
@@ -132,9 +136,8 @@ IonBailoutIterator::IonBailoutIterator(const JitActivationIterator &activations,
 
     // Compute the snapshot offset from the bailout ID.
     JitActivation *activation = activations.activation()->asJit();
-    JSCompartment *jsCompartment = activation->compartment();
-    IonCompartment *ionCompartment = jsCompartment->ionCompartment();
-    IonCode *code = ionCompartment->getBailoutTable(bailout->frameClass());
+    JSRuntime *rt = activation->compartment()->runtimeFromMainThread();
+    JitCode *code = rt->jitRuntime()->getBailoutTable(bailout->frameClass());
     uintptr_t tableOffset = bailout->tableOffset();
     uintptr_t tableStart = reinterpret_cast<uintptr_t>(code->raw());
 

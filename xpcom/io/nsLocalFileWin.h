@@ -15,6 +15,7 @@
 #include "nsILocalFileWin.h"
 #include "nsIHashable.h"
 #include "nsIClassInfoImpl.h"
+#include "prio.h"
 
 #include "mozilla/Attributes.h"
 
@@ -34,7 +35,7 @@ public:
     static nsresult nsLocalFileConstructor(nsISupports* outer, const nsIID& aIID, void* *aInstancePtr);
 
     // nsISupports interface
-    NS_DECL_ISUPPORTS
+    NS_DECL_THREADSAFE_ISUPPORTS
     
     // nsIFile interface
     NS_DECL_NSIFILE
@@ -93,7 +94,7 @@ private:
                             bool followSymlinks, bool move,
                             bool skipNtfsAclReset = false);
 
-    nsresult SetModDate(int64_t aLastModifiedTime, const PRUnichar *filePath);
+    nsresult SetModDate(int64_t aLastModifiedTime, const char16_t *filePath);
     nsresult HasFileAttribute(DWORD fileAttrib, bool *_retval);
     nsresult AppendInternal(const nsAFlatString &node,
                             bool multipleComponents);

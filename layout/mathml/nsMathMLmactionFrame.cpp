@@ -3,28 +3,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "nsMathMLmactionFrame.h"
 #include "nsCOMPtr.h"
-#include "nsFrame.h"
 #include "nsPresContext.h"
-#include "nsStyleContext.h"
-#include "nsStyleConsts.h"
 #include "nsINameSpaceManager.h"
-
-#include "nsCSSRendering.h"
 #include "prprf.h"         // For PR_snprintf()
-
-#include "nsIDocShellTreeItem.h"
+#include "nsIDocShell.h"
 #include "nsIDocShellTreeOwner.h"
 #include "nsIWebBrowserChrome.h"
-#include "nsIInterfaceRequestor.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "nsIDOMElement.h"
 #include "nsTextFragment.h"
-
-#include "nsMathMLmactionFrame.h"
-#include "nsAutoPtr.h"
-#include "nsStyleSet.h"
-#include "nsDisplayList.h"
+#include "nsIDOMEvent.h"
+#include "mozilla/gfx/2D.h"
 
 //
 // <maction> -- bind actions to a subexpression - implementation
@@ -141,8 +131,7 @@ nsMathMLmactionFrame::GetSelectedFrame()
     return mSelectedFrame;
   }
 
-  GetAttribute(mContent, mPresentationData.mstyle, nsGkAtoms::selection_,
-               value);
+  mContent->GetAttr(kNameSpaceID_None, nsGkAtoms::selection_, value);
   if (!value.IsEmpty()) {
     nsresult errorCode;
     selection = value.ToInteger(&errorCode);
@@ -256,17 +245,14 @@ NS_IMPL_ISUPPORTS1(nsMathMLmactionFrame::MouseListener,
 void
 ShowStatus(nsPresContext* aPresContext, nsString& aStatusMsg)
 {
-  nsCOMPtr<nsISupports> cont = aPresContext->GetContainer();
-  if (cont) {
-    nsCOMPtr<nsIDocShellTreeItem> docShellItem(do_QueryInterface(cont));
-    if (docShellItem) {
-      nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-      docShellItem->GetTreeOwner(getter_AddRefs(treeOwner));
-      if (treeOwner) {
-        nsCOMPtr<nsIWebBrowserChrome> browserChrome(do_GetInterface(treeOwner));
-        if (browserChrome) {
-          browserChrome->SetStatus(nsIWebBrowserChrome::STATUS_LINK, aStatusMsg.get());
-        }
+  nsCOMPtr<nsIDocShellTreeItem> docShellItem(aPresContext->GetDocShell());
+  if (docShellItem) {
+    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+    docShellItem->GetTreeOwner(getter_AddRefs(treeOwner));
+    if (treeOwner) {
+      nsCOMPtr<nsIWebBrowserChrome> browserChrome(do_GetInterface(treeOwner));
+      if (browserChrome) {
+        browserChrome->SetStatus(nsIWebBrowserChrome::STATUS_LINK, aStatusMsg.get());
       }
     }
   }

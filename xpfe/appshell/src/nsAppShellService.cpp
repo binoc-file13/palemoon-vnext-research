@@ -23,19 +23,17 @@
 #include "nsCRT.h"
 #include "prprf.h"
 
+#include "nsWidgetInitData.h"
 #include "nsWidgetsCID.h"
+#include "nsIWidget.h"
 #include "nsIRequestObserver.h"
 
 /* For implementing GetHiddenWindowAndJSContext */
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptContext.h"
-#include "jsapi.h"
 
 #include "nsAppShellService.h"
 #include "nsISupportsPrimitives.h"
-#include "nsIPlatformCharset.h"
-#include "nsICharsetConverterManager.h"
-#include "nsIUnicodeDecoder.h"
 #include "nsIChromeRegistry.h"
 #include "nsILoadContext.h"
 #include "nsIWebNavigation.h"
@@ -232,7 +230,7 @@ NS_IMPL_ADDREF(WebBrowserChrome2Stub)
 NS_IMPL_RELEASE(WebBrowserChrome2Stub)
 
 NS_IMETHODIMP
-WebBrowserChrome2Stub::SetStatus(uint32_t aStatusType, const PRUnichar* aStatus)
+WebBrowserChrome2Stub::SetStatus(uint32_t aStatusType, const char16_t* aStatus)
 {
   return NS_OK;
 }
@@ -348,7 +346,7 @@ NS_IMPL_RELEASE(WindowlessBrowserStub)
 
 
 NS_IMETHODIMP
-nsAppShellService::CreateWindowlessBrowser(nsIWebNavigation **aResult)
+nsAppShellService::CreateWindowlessBrowser(bool aIsChrome, nsIWebNavigation **aResult)
 {
   /* First, we create an instance of nsWebBrowser. Instances of this class have
    * an associated doc shell, which is what we're interested in.
@@ -374,7 +372,8 @@ nsAppShellService::CreateWindowlessBrowser(nsIWebNavigation **aResult)
   nsCOMPtr<nsIWebNavigation> navigation = do_QueryInterface(browser);
 
   nsCOMPtr<nsIDocShellTreeItem> item = do_QueryInterface(navigation);
-  item->SetItemType(nsIDocShellTreeItem::typeContentWrapper);
+  item->SetItemType(aIsChrome ? nsIDocShellTreeItem::typeChromeWrapper
+                              : nsIDocShellTreeItem::typeContentWrapper);
 
   /* A windowless web browser doesn't have an associated OS level window. To
    * accomplish this, we initialize the window associated with our instance of
@@ -394,6 +393,9 @@ nsAppShellService::CreateWindowlessBrowser(nsIWebNavigation **aResult)
 
   nsISupports *isstub = NS_ISUPPORTS_CAST(nsIWebBrowserChrome2*, stub);
   nsRefPtr<nsIWebNavigation> result = new WindowlessBrowserStub(browser, isstub);
+  nsCOMPtr<nsIDocShell> docshell = do_GetInterface(result);
+  docshell->SetInvisible(true);
+
   result.forget(aResult);
   return NS_OK;
 }
@@ -525,8 +527,11 @@ nsAppShellService::JustCreateTopWindow(nsIXULWindow *aParent,
   uint32_t sheetMask = nsIWebBrowserChrome::CHROME_OPENAS_DIALOG |
                        nsIWebBrowserChrome::CHROME_MODAL |
                        nsIWebBrowserChrome::CHROME_OPENAS_CHROME;
-  if (parent && ((aChromeMask & sheetMask) == sheetMask))
+  if (parent &&
+      (parent != mHiddenWindow && parent != mHiddenPrivateWindow) &&
+      ((aChromeMask & sheetMask) == sheetMask)) {
     widgetInitData.mWindowType = eWindowType_sheet;
+  }
 #endif
 
 #if defined(XP_WIN)
@@ -843,7 +848,7 @@ nsAppShellService::UnregisterTopLevelWindow(nsIXULWindow* aWindow)
 
 NS_IMETHODIMP
 nsAppShellService::Observe(nsISupports* aSubject, const char *aTopic,
-                           const PRUnichar *aData)
+                           const char16_t *aData)
 {
   if (!strcmp(aTopic, "xpcom-will-shutdown")) {
     mXPCOMWillShutDown = true;

@@ -51,7 +51,7 @@ var isPrimaryTestWindow = !!parent.TestRunner || (parent == window && !opener);
 
 /* Helper functions pulled out of various MochiKit modules */
 if (typeof(repr) == 'undefined') {
-    function repr(o) {
+    this.repr = function(o) {
         if (typeof(o) == "undefined") {
             return "undefined";
         } else if (o === null) {
@@ -94,7 +94,7 @@ if (typeof(repr) == 'undefined') {
  * This is used by SimpleTest.showReport
  */
 if (typeof(partial) == 'undefined') {
-    function partial(func) {
+    this.partial = function(func) {
         var args = [];
         for (var i = 1; i < arguments.length; i++) {
             args.push(arguments[i]);
@@ -111,7 +111,7 @@ if (typeof(partial) == 'undefined') {
 }
 
 if (typeof(getElement) == 'undefined') {
-    function getElement(id) {
+    this.getElement = function(id) {
         return ((typeof(id) == "string") ?
             document.getElementById(id) : id); 
     };
@@ -137,7 +137,7 @@ SimpleTest._newCallStack = function(path) {
 };
 
 if (typeof(addLoadEvent) == 'undefined') {
-    function addLoadEvent(func) {
+    this.addLoadEvent = function(func) {
         var existing = window["onload"];
         var regfunc = existing;
         if (!(typeof(existing) == 'function'
@@ -175,7 +175,7 @@ function createEl(type, attrs, html) {
 
 /* lots of tests use this as a helper to get css properties */
 if (typeof(computedStyle) == 'undefined') {
-    function computedStyle(elem, cssProperty) {
+    this.computedStyle = function(elem, cssProperty) {
         elem = getElement(elem);
         if (elem.currentStyle) {
             return elem.currentStyle[cssProperty];
@@ -245,6 +245,12 @@ SimpleTest.is = function (a, b, name) {
     SimpleTest.ok(pass, name, diag);
 };
 
+SimpleTest.isfuzzy = function (a, b, epsilon, name) {
+  var pass = (a > b - epsilon) && (a < b + epsilon);
+  var diag = pass ? "" : "got " + repr(a) + ", expected " + repr(b) + " epsilon: +/- " + repr(epsilon)
+  SimpleTest.ok(pass, name, diag);
+};
+
 SimpleTest.isnot = function (a, b, name) {
     var pass = (a != b);
     var diag = pass ? "" : "didn't expect " + repr(a) + ", but got it";
@@ -277,6 +283,25 @@ SimpleTest.todo = function(condition, name, diag) {
     var test = {'result': !!condition, 'name': name, 'diag': diag, todo: true};
     SimpleTest._logResult(test, "TEST-UNEXPECTED-PASS", "TEST-KNOWN-FAIL");
     SimpleTest._tests.push(test);
+};
+
+/*
+ * Returns the absolute URL to a test data file from where tests
+ * are served. i.e. the file doesn't necessarely exists where tests
+ * are executed.
+ * (For b2g and android, mochitest are executed on the device, while
+ * all mochitest html (and others) files are served from the test runner
+ * slave)
+ */
+SimpleTest.getTestFileURL = function(path) {
+  var lastSlashIdx = path.lastIndexOf("/") + 1;
+  var filename = path.substr(lastSlashIdx);
+  var location = window.location;
+  // Remove mochitest html file name from the path
+  var remotePath = location.pathname.replace(/\/[^\/]+?$/,"");
+  var url = location.origin +
+            remotePath + "/" + path;
+  return url;
 };
 
 SimpleTest._getCurrentTestURL = function() {
@@ -705,6 +730,7 @@ SimpleTest.executeSoon = function(aFunc) {
         return SpecialPowers.executeSoon(aFunc, window);
     }
     setTimeout(aFunc, 0);
+    return null;		// Avoid warning.
 };
 
 SimpleTest.registerCleanupFunction = function(aFunc) {
@@ -760,7 +786,11 @@ SimpleTest.finish = function () {
         /* We're running in an iframe, and the parent has a TestRunner */
         parentRunner.testFinished(SimpleTest._tests);
     } else {
-        SimpleTest.showReport();
+        SpecialPowers.flushPermissions(function () {
+          SpecialPowers.flushPrefEnv(function() {
+            SimpleTest.showReport();
+          });
+        });
     }
 };
 
@@ -862,7 +892,8 @@ SimpleTest.monitorConsole = function (continuation, msgs, forbidUnexpectedMsgs) 
       info("monitorConsole | [" + counter + "] " +
            (matches ? "matched " : "did not match ") + JSON.stringify(msg));
     }
-    counter++;
+    if (matches)
+      counter++;
   }
   SpecialPowers.registerConsoleListener(listener);
 };
@@ -1163,6 +1194,7 @@ SimpleTest.isa = function (object, clas) {
 // Global symbols:
 var ok = SimpleTest.ok;
 var is = SimpleTest.is;
+var isfuzzy = SimpleTest.isfuzzy;
 var isnot = SimpleTest.isnot;
 var ise = SimpleTest.ise;
 var todo = SimpleTest.todo;

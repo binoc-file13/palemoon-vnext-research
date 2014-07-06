@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "ExecutableAllocator.h"
+#include "assembler/jit/ExecutableAllocator.h"
 
 #if ENABLE_ASSEMBLER && WTF_OS_WINDOWS
 
@@ -99,7 +99,7 @@ ExecutablePool::Allocation ExecutableAllocator::systemAlloc(size_t n)
     // Randomization disabled to avoid a performance fault on x64 builds.
     // See bug 728623.
 #ifndef JS_CPU_X64
-    if (allocBehavior == AllocationCanRandomize && !RandomizeIsBroken()) {
+    if (!RandomizeIsBroken()) {
         void *randomAddress = computeRandomAllocationAddress();
         allocation = VirtualAlloc(randomAddress, n, MEM_COMMIT | MEM_RESERVE,
                                   PAGE_EXECUTE_READWRITE);
@@ -114,6 +114,19 @@ ExecutablePool::Allocation ExecutableAllocator::systemAlloc(size_t n)
 void ExecutableAllocator::systemRelease(const ExecutablePool::Allocation& alloc)
 {
     VirtualFree(alloc.pages, 0, MEM_RELEASE);
+}
+
+void
+ExecutablePool::toggleAllCodeAsAccessible(bool accessible)
+{
+    char* begin = m_allocation.pages;
+    size_t size = m_freePtr - begin;
+
+    if (size) {
+        DWORD oldProtect;
+        if (!VirtualProtect(begin, size, accessible ? PAGE_EXECUTE_READWRITE : PAGE_NOACCESS, &oldProtect))
+            MOZ_CRASH();
+    }
 }
 
 #if ENABLE_ASSEMBLER_WX_EXCLUSIVE

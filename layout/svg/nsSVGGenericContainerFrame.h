@@ -41,7 +41,7 @@ public:
    */
   virtual nsIAtom* GetType() const MOZ_OVERRIDE;
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const MOZ_OVERRIDE
   {
     return MakeFrameName(NS_LITERAL_STRING("SVGGenericContainer"), aResult);
@@ -49,7 +49,8 @@ public:
 #endif
 
   // nsSVGContainerFrame methods:
-  virtual gfxMatrix GetCanvasTM(uint32_t aFor) MOZ_OVERRIDE;
+  virtual gfxMatrix GetCanvasTM(uint32_t aFor,
+                                nsIFrame* aTransformRoot = nullptr) MOZ_OVERRIDE;
 };
 
 #endif // __NS_SVGGENERICCONTAINERFRAME_H__

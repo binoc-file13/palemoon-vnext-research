@@ -16,8 +16,7 @@
 // next thread event for at most this many ticks:
 #define THREAD_EVENT_STARVATION_LIMIT PR_MillisecondsToInterval(20)
 
-NS_IMPL_THREADSAFE_ISUPPORTS3(nsBaseAppShell, nsIAppShell, nsIThreadObserver,
-                              nsIObserver)
+NS_IMPL_ISUPPORTS3(nsBaseAppShell, nsIAppShell, nsIThreadObserver, nsIObserver)
 
 nsBaseAppShell::nsBaseAppShell()
   : mSuspendNativeCount(0)
@@ -62,8 +61,7 @@ nsBaseAppShell::Init()
 void
 nsBaseAppShell::NativeEventCallback()
 {
-  int32_t hasPending = PR_ATOMIC_SET(&mNativeEventPending, 0);
-  if (hasPending == 0)
+  if (!mNativeEventPending.exchange(0))
     return;
 
   // If DoProcessNextNativeEvent is on the stack, then we assume that we can
@@ -227,8 +225,7 @@ nsBaseAppShell::OnDispatchedEvent(nsIThreadInternal *thr)
   if (mBlockNativeEvent)
     return NS_OK;
 
-  int32_t lastVal = PR_ATOMIC_SET(&mNativeEventPending, 1);
-  if (lastVal == 1)
+  if (mNativeEventPending.exchange(1))
     return NS_OK;
 
   // Returns on the main thread in NativeEventCallback above
@@ -402,7 +399,8 @@ nsBaseAppShell::ScheduleSyncSection(nsIRunnable* aRunnable, bool aStable)
 // Called from the main thread
 NS_IMETHODIMP
 nsBaseAppShell::AfterProcessNextEvent(nsIThreadInternal *thr,
-                                      uint32_t recursionDepth)
+                                      uint32_t recursionDepth,
+                                      bool eventWasProcessed)
 {
   // We've just finished running an event, so we're in a stable state. 
   RunSyncSections(true, recursionDepth);
@@ -411,7 +409,7 @@ nsBaseAppShell::AfterProcessNextEvent(nsIThreadInternal *thr,
 
 NS_IMETHODIMP
 nsBaseAppShell::Observe(nsISupports *subject, const char *topic,
-                        const PRUnichar *data)
+                        const char16_t *data)
 {
   NS_ASSERTION(!strcmp(topic, NS_XPCOM_SHUTDOWN_OBSERVER_ID), "oops");
   Exit();

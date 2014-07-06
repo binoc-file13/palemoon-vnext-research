@@ -23,7 +23,7 @@ protected:
   SVGFELeafFrame(nsStyleContext* aContext)
     : SVGFELeafFrameBase(aContext)
   {
-    AddStateBits(NS_FRAME_SVG_LAYOUT | NS_STATE_SVG_NONDISPLAY_CHILD);
+    AddStateBits(NS_FRAME_SVG_LAYOUT | NS_FRAME_IS_NONDISPLAY);
   }
 
 public:
@@ -40,14 +40,12 @@ public:
     return SVGFELeafFrameBase::IsFrameOfType(aFlags & ~(nsIFrame::eSVG));
   }
 
-#ifdef DEBUG
+#ifdef DEBUG_FRAME_DUMP
   NS_IMETHOD GetFrameName(nsAString& aResult) const
   {
     return MakeFrameName(NS_LITERAL_STRING("SVGFELeaf"), aResult);
   }
 #endif
-
-  virtual void DidSetStyleContext(nsStyleContext* aOldStyleContext);
 
   /**
    * Get the "type" of the frame
@@ -73,13 +71,6 @@ NS_NewSVGFELeafFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 }
 
 NS_IMPL_FRAMEARENA_HELPERS(SVGFELeafFrame)
-
-/* virtual */ void
-SVGFELeafFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
-{
-  SVGFELeafFrameBase::DidSetStyleContext(aOldStyleContext);
-  nsSVGEffects::InvalidateRenderingObservers(this);
-}
 
 #ifdef DEBUG
 void

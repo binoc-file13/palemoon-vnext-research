@@ -13,6 +13,7 @@
 #include "nsCacheEntry.h"
 #include "nsThreadUtils.h"
 #include "nsICacheListener.h"
+#include "nsIMemoryReporter.h"
 
 #include "prthread.h"
 #include "nsIObserver.h"
@@ -61,12 +62,14 @@ private:
  *  nsCacheService
  ******************************************************************************/
 
-class nsCacheService : public nsICacheServiceInternal
+class nsCacheService : public nsICacheServiceInternal,
+                       public nsIMemoryReporter
 {
 public:
-    NS_DECL_ISUPPORTS
+    NS_DECL_THREADSAFE_ISUPPORTS
     NS_DECL_NSICACHESERVICE
     NS_DECL_NSICACHESERVICEINTERNAL
+    NS_DECL_NSIMEMORYREPORTER
 
     nsCacheService();
     virtual ~nsCacheService();
@@ -292,6 +295,7 @@ private:
     void             ClearDoomList(void);
     void             DoomActiveEntries(DoomCheckFn check);
     void             CloseAllStreams();
+    void             FireClearNetworkCacheStoredAnywhereNotification();
 
     static
     PLDHashOperator  GetActiveEntries(PLDHashTable *    table,
