@@ -4,10 +4,6 @@
 
 dist_dest   = $(DIST)/$(MOZ_MACBUNDLE_NAME)
 
-ifdef ENABLE_MARIONETTE
-DEFINES += -DENABLE_MARIONETTE=1
-endif
-
 PREF_JS_EXPORTS = $(srcdir)/profile/firefox.js \
 		  $(NULL)
 
